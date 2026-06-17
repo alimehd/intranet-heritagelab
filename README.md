@@ -6,7 +6,7 @@ Internal web app for Heritage Lab staff and board members. First feature: **trav
 
 - **Next.js 15** (App Router) + **React 19** + **TypeScript**
 - **Tailwind CSS** with a light theme matching the Heritage Lab platform
-- **NextAuth 5** with Google OAuth and an email allowlist
+- **NextAuth 5** with Auth0 (federating Microsoft Entra ID / Azure AD) and domain-based access control
 - **Drizzle ORM** on **Neon Postgres**
 - **Resend** for transactional email
 - **@react-pdf/renderer** for the claim PDF
@@ -27,7 +27,7 @@ cp .env.example .env.local
 You need:
 - `DATABASE_URL` from Neon (use the pooled connection string)
 - `AUTH_SECRET` — run `openssl rand -base64 32`
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` from Google Cloud Console
+- `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_ISSUER` from your Auth0 application (Regular Web Application)
 - `ALLOWED_EMAIL_DOMAINS` — comma-separated list of allowed email domains (defaults to `heritagelab.ca`)
 - `ALLOWED_EMAILS` — optional individual emails outside those domains (e.g. board members on personal Gmail)
 - `RESEND_API_KEY` from resend.com
@@ -53,13 +53,36 @@ Open http://localhost:3000.
 2. Copy the **pooled** connection string (URI contains `-pooler`).
 3. Save as `DATABASE_URL`.
 
-### Google OAuth
-1. Go to https://console.cloud.google.com → APIs & Services → Credentials.
-2. Create an **OAuth client ID** (Web application).
-3. Add authorized redirect URI:
-   - Local: `http://localhost:3000/api/auth/callback/google`
-   - Production: `https://intranet.heritagelab.ca/api/auth/callback/google`
-4. Save the client ID and secret.
+### Auth0 (with Microsoft Entra ID / Azure AD as upstream)
+1. In Auth0 Dashboard → **Applications → Create Application** → "Regular Web Application".
+2. **Settings tab**, set:
+   - **Allowed Callback URLs:**
+     ```
+     http://localhost:3000/api/auth/callback/auth0,
+     https://YOUR-VERCEL-URL.vercel.app/api/auth/callback/auth0,
+     https://intranet.heritagelab.ca/api/auth/callback/auth0
+     ```
+   - **Allowed Logout URLs:**
+     ```
+     http://localhost:3000,
+     https://YOUR-VERCEL-URL.vercel.app,
+     https://intranet.heritagelab.ca
+     ```
+   - **Allowed Web Origins:** same set as Logout URLs.
+3. Copy the **Domain** (e.g. `heritagelab.us.auth0.com`), **Client ID**, and **Client Secret**.
+   - `AUTH0_ISSUER` is `https://<Domain>` (no trailing slash).
+4. **Authentication → Enterprise → Microsoft Azure AD** — connect your Azure AD tenant if not already done, and enable it for this Application (Application → Connections).
+5. (Optional but recommended) Disable the default `Username-Password-Authentication` and Google Social connection for this Application, so users can only log in via Azure AD.
+6. (Optional) In **Actions → Library → Build Custom** add a Post-Login action that rejects any email not ending in `@heritagelab.ca`:
+   ```js
+   exports.onExecutePostLogin = async (event, api) => {
+     const email = (event.user.email || "").toLowerCase();
+     if (!email.endsWith("@heritagelab.ca")) {
+       api.access.deny("Access restricted to heritagelab.ca accounts.");
+     }
+   };
+   ```
+   Then add it to the Login flow. The app **also** enforces this client-side via `ALLOWED_EMAIL_DOMAINS`, so this is belt-and-suspenders.
 
 ### Resend
 1. Sign up at https://resend.com.
