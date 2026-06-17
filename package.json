@@ -1,0 +1,44 @@
+{
+  "name": "hl-intranet",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "next-auth": "5.0.0-beta.25",
+    "@auth/drizzle-adapter": "^1.7.4",
+    "drizzle-orm": "^0.38.4",
+    "@neondatabase/serverless": "^0.10.4",
+    "resend": "^4.1.1",
+    "@react-pdf/renderer": "^4.1.6",
+    "zod": "^3.24.1",
+    "react-hook-form": "^7.54.2",
+    "@hookform/resolvers": "^3.10.0",
+    "lucide-react": "^0.474.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.7",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "tailwindcss": "^3.4.17",
+    "postcss": "^8.5.1",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "^15.1.6",
+    "drizzle-kit": "^0.30.2",
+    "dotenv": "^16.4.7"
+  }
+}
