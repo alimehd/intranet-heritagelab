@@ -5,7 +5,9 @@ export default auth((req) => {
   const { nextUrl } = req;
   const isAuthed = !!req.auth;
   const isAuthRoute =
-    nextUrl.pathname === "/signin" || nextUrl.pathname.startsWith("/api/auth");
+    nextUrl.pathname === "/signin" ||
+    nextUrl.pathname.startsWith("/signin/") ||
+    nextUrl.pathname.startsWith("/api/auth");
   const isPublicAsset =
     nextUrl.pathname.startsWith("/_next") ||
     nextUrl.pathname.startsWith("/favicon") ||

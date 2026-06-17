@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { signIn, auth } from "@/auth";
+import { auth, signIn } from "@/auth";
 import { redirect } from "next/navigation";
 
 type SearchParams = Promise<{ callbackUrl?: string; error?: string }>;
@@ -38,34 +38,50 @@ export default async function SignInPage({
         {error ? (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error === "AccessDenied"
-              ? "Access is restricted to @heritagelab.ca accounts. Please sign in with your work email, or contact an administrator if you need an exception."
-              : "Sign in failed. Please try again."}
+              ? "Access is restricted to @heritagelab.ca email addresses. Contact an administrator if you need an exception."
+              : error === "Verification"
+                ? "That sign-in link is no longer valid (it expired or was already used). Please request a new one."
+                : "Sign in failed. Please try again."}
           </div>
         ) : null}
 
         <form
-          action={async () => {
+          action={async (formData: FormData) => {
             "use server";
-            await signIn("auth0", {
+            const email = String(formData.get("email") ?? "")
+              .trim()
+              .toLowerCase();
+            if (!email) return;
+            await signIn("resend", {
+              email,
               redirectTo: callbackUrl || "/dashboard",
             });
           }}
+          className="space-y-4"
         >
+          <div>
+            <label htmlFor="email" className="hl-label">
+              Work email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              autoFocus
+              placeholder="you@heritagelab.ca"
+              className="hl-input"
+            />
+          </div>
           <button type="submit" className="hl-btn-primary w-full">
-            <svg
-              className="h-4 w-4"
-              viewBox="0 0 24 24"
-              aria-hidden
-              fill="currentColor"
-            >
-              <path d="M3 3h8.5v8.5H3V3zm9.5 0H21v8.5h-8.5V3zM3 12.5h8.5V21H3v-8.5zm9.5 0H21V21h-8.5v-8.5z" />
-            </svg>
-            Sign in with Heritage Lab SSO
+            Send sign-in link
           </button>
         </form>
 
         <p className="mt-6 text-center text-xs text-hl-muted">
-          Sign in with your <strong>@heritagelab.ca</strong> account.
+          We&apos;ll email you a one-time sign-in link. Access is restricted to{" "}
+          <strong>@heritagelab.ca</strong> addresses.
         </p>
       </div>
     </div>
