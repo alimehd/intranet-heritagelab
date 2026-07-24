@@ -1,5 +1,5 @@
-import Image from "next/image";
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 
 export const metadata = { title: "Check your email — Heritage Lab" };
 
@@ -7,14 +7,10 @@ export default function CheckEmailPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-hl-cream px-4">
       <div className="hl-card w-full max-w-md p-8 text-center">
-        <Image
-          src="/logo.png"
-          alt="Heritage Lab"
-          width={56}
-          height={56}
-          className="mx-auto mb-4 h-14 w-14 object-contain"
-        />
-        <h1 className="font-serif text-2xl font-semibold text-hl-ink">
+        <div className="mb-6 flex justify-center">
+          <Logo height={36} priority />
+        </div>
+        <h1 className="text-xl font-semibold tracking-tight text-hl-ink">
           Check your email
         </h1>
         <p className="mt-3 text-sm text-hl-muted">

@@ -1,52 +1,69 @@
-export const metadata = { title: "Policies — Heritage Lab" };
+import { auth } from "@/auth";
+import { isBoardMember } from "@/lib/roles";
+import {
+  BOARD_GENERAL_FOLDER,
+  BUSINESS_TRAVEL_POLICY,
+  type Resource,
+} from "@/lib/resources";
+import { ArrowUpRight, FileText, FolderOpen } from "lucide-react";
 
-const policies = [
-  {
-    title: "Travel & Expense Policy",
-    description:
-      "Per-diems, allowable expenses, receipt requirements, and reimbursement timelines.",
-  },
-  {
-    title: "Code of Conduct",
-    description: "Expectations for staff, board members, and contractors.",
-  },
-  {
-    title: "Privacy & Data Handling",
-    description:
-      "How Heritage Lab collects, stores, and protects personal information.",
-  },
-  {
-    title: "Conflict of Interest",
-    description:
-      "Disclosure obligations and procedures for board members and staff.",
-  },
-];
+export const metadata = { title: "Resources — Heritage Lab" };
 
-export default function PoliciesPage() {
+export default async function PoliciesPage() {
+  const session = await auth();
+  const boardMember = isBoardMember(session?.user?.email);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="font-serif text-3xl font-semibold text-hl-ink">
-          Policies
+        <h1 className="text-3xl font-semibold tracking-tight text-hl-ink">
+          Resources
         </h1>
         <p className="mt-1 text-sm text-hl-muted">
-          Organizational policies and reference documents. Content coming soon.
+          Policies and shared documents for Heritage Lab staff and board.
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {policies.map((p) => (
-          <div key={p.title} className="hl-card p-5">
-            <div className="mb-2 inline-flex rounded bg-hl-cream px-2 py-0.5 text-xs uppercase tracking-wider text-hl-muted">
-              Coming soon
-            </div>
-            <h2 className="font-serif text-lg font-semibold text-hl-ink">
-              {p.title}
-            </h2>
-            <p className="mt-1 text-sm text-hl-muted">{p.description}</p>
-          </div>
-        ))}
-      </div>
+      <section className="space-y-4">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-hl-muted">
+          Policies
+        </h2>
+        <ResourceCard resource={BUSINESS_TRAVEL_POLICY} />
+      </section>
+
+      {boardMember ? (
+        <section className="space-y-4">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-hl-muted">
+            Board of Directors
+          </h2>
+          <ResourceCard resource={BOARD_GENERAL_FOLDER} />
+        </section>
+      ) : null}
     </div>
+  );
+}
+
+function ResourceCard({ resource }: { resource: Resource }) {
+  const Icon = resource.kind === "folder" ? FolderOpen : FileText;
+  return (
+    <a
+      href={resource.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hl-card group flex items-start gap-4 p-5 transition hover:border-hl-green-600 hover:shadow-md"
+    >
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-hl-green-50 text-hl-green-700">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 font-semibold tracking-tight text-hl-ink group-hover:text-hl-green-700">
+          {resource.title}
+          <ArrowUpRight className="h-4 w-4 opacity-0 transition group-hover:opacity-100" />
+        </span>
+        <span className="mt-1 block text-sm text-hl-muted">
+          {resource.description}
+        </span>
+      </span>
+    </a>
   );
 }

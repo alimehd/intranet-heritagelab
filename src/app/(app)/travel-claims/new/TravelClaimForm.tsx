@@ -164,7 +164,7 @@ export function TravelClaimForm({
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Trip info */}
       <section className="hl-card p-6">
-        <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
           Trip Details
         </h2>
         <div className="grid gap-4 md:grid-cols-2">
@@ -243,7 +243,7 @@ export function TravelClaimForm({
 
       {/* Airfare */}
       <section className="hl-card p-6">
-        <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
           Airfare
         </h2>
         <div className="grid gap-4 md:grid-cols-3">
@@ -285,7 +285,7 @@ export function TravelClaimForm({
 
       {/* Hotel */}
       <section className="hl-card p-6">
-        <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
           Hotel
         </h2>
         <div className="grid gap-4 md:grid-cols-3">
@@ -330,7 +330,7 @@ export function TravelClaimForm({
       {/* Ground transport */}
       <section className="hl-card p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-serif text-xl font-semibold text-hl-green-700">
+          <h2 className="tracking-tight text-xl font-semibold text-hl-green-700">
             Ground Transportation
           </h2>
           <button
@@ -444,7 +444,7 @@ export function TravelClaimForm({
       {/* KM */}
       <section className="hl-card p-6">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-serif text-xl font-semibold text-hl-green-700">
+          <h2 className="tracking-tight text-xl font-semibold text-hl-green-700">
             Personal Vehicle
           </h2>
           <button type="button" onClick={addKm} className="hl-btn-secondary">
@@ -559,7 +559,7 @@ export function TravelClaimForm({
 
       {/* Meals */}
       <section className="hl-card p-6">
-        <h2 className="font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="tracking-tight text-xl font-semibold text-hl-green-700">
           Meals & Incidentals
         </h2>
         <p className="mb-4 text-sm text-hl-muted">
@@ -624,7 +624,7 @@ export function TravelClaimForm({
       {/* Other */}
       <section className="hl-card p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-serif text-xl font-semibold text-hl-green-700">
+          <h2 className="tracking-tight text-xl font-semibold text-hl-green-700">
             Other Expenses
           </h2>
           <button type="button" onClick={addOther} className="hl-btn-secondary">
@@ -719,7 +719,7 @@ export function TravelClaimForm({
 
       {/* Notes & Receipts */}
       <section className="hl-card p-6">
-        <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
           Notes & Receipts
         </h2>
         <div className="mb-4">
@@ -736,7 +736,8 @@ export function TravelClaimForm({
           <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-hl-border bg-hl-cream px-4 py-6 text-sm text-hl-muted transition hover:border-hl-green-600 hover:text-hl-ink">
             <Upload className="h-5 w-5" />
             <span>
-              Click to add PDF or image files. Max 8 MB per file, 20 MB total.
+              Click to add PDF, JPG, or PNG files — they are appended to the end
+              of the claim PDF. Max 8 MB per file, 20 MB total.
             </span>
             <input
               type="file"
@@ -785,7 +786,7 @@ export function TravelClaimForm({
 
       {/* Totals + submit */}
       <section className="hl-card p-6">
-        <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
           Summary
         </h2>
         <dl className="grid grid-cols-2 gap-y-1 text-sm md:grid-cols-3">
@@ -800,7 +801,7 @@ export function TravelClaimForm({
           <span className="text-sm uppercase tracking-wider text-hl-muted">
             Grand Total
           </span>
-          <span className="font-serif text-2xl font-semibold text-hl-green-700">
+          <span className="tracking-tight text-2xl font-semibold text-hl-green-700">
             {formatMoney(totals.grandTotal)}
           </span>
         </div>

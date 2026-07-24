@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { Logo } from "@/components/Logo";
 import { auth, signIn } from "@/auth";
 import { redirect } from "next/navigation";
 
@@ -17,17 +17,11 @@ export default async function SignInPage({
   return (
     <div className="flex min-h-screen items-center justify-center bg-hl-cream px-4">
       <div className="hl-card w-full max-w-md p-8">
-        <div className="mb-6 flex flex-col items-center gap-3">
-          <Image
-            src="/logo.png"
-            alt="Heritage Lab"
-            width={64}
-            height={64}
-            className="h-16 w-16 object-contain"
-          />
+        <div className="mb-8 flex flex-col items-center gap-5">
+          <Logo height={40} priority />
           <div className="text-center">
-            <h1 className="font-serif text-2xl font-semibold text-hl-ink">
-              Heritage Lab Intranet
+            <h1 className="text-xl font-semibold tracking-tight text-hl-ink">
+              Sign in to the Intranet
             </h1>
             <p className="mt-1 text-sm text-hl-muted">
               Internal tools for staff and board members.

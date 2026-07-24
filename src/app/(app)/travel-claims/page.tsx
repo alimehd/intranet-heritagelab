@@ -21,7 +21,7 @@ export default async function ClaimsListPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-hl-ink">
+          <h1 className="tracking-tight text-3xl font-semibold text-hl-ink">
             My Travel Claims
           </h1>
           <p className="mt-1 text-sm text-hl-muted">

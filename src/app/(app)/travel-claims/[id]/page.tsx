@@ -3,13 +3,15 @@ import { notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { travelClaims } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   computeTotals,
   formatMoney,
   travelClaimSchema,
 } from "@/lib/claims/schema";
 import { StatusBadge } from "@/components/StatusBadge";
+import { isBoardMember } from "@/lib/roles";
+import { CancelClaimForm } from "./CancelClaimForm";
 
 type SearchParams = Promise<{ submitted?: string }>;
 type Params = Promise<{ id: string }>;
@@ -28,12 +30,14 @@ export default async function ClaimDetailPage({
   const [row] = await db
     .select()
     .from(travelClaims)
-    .where(
-      and(eq(travelClaims.id, id), eq(travelClaims.userId, session!.user.id)),
-    )
+    .where(eq(travelClaims.id, id))
     .limit(1);
 
-  if (!row) notFound();
+  // Board members can review and cancel any claim; everyone else only their own.
+  const boardMember = isBoardMember(session?.user?.email);
+  if (!row || (row.userId !== session!.user.id && !boardMember)) notFound();
+
+  const cancelled = row.status === "cancelled";
 
   const parsed = travelClaimSchema.safeParse(row.payload);
   const claim = parsed.success ? parsed.data : null;
@@ -50,7 +54,7 @@ export default async function ClaimDetailPage({
         </Link>
         <div className="mt-2 flex items-start justify-between gap-4">
           <div>
-            <h1 className="font-serif text-3xl font-semibold text-hl-ink">
+            <h1 className="tracking-tight text-3xl font-semibold text-hl-ink">
               {row.purpose}
             </h1>
             <p className="mt-1 text-sm text-hl-muted">
@@ -62,7 +66,7 @@ export default async function ClaimDetailPage({
         </div>
       </div>
 
-      {submitted ? (
+      {submitted && !cancelled ? (
         <div
           className={`rounded-md border px-4 py-3 text-sm ${
             row.status === "emailed"
@@ -71,8 +75,22 @@ export default async function ClaimDetailPage({
           }`}
         >
           {row.status === "emailed"
-            ? "Claim submitted and emailed to payments@heritagelab.ca."
+            ? "Claim submitted and emailed for processing, with all receipts appended to the claim PDF."
             : "Claim was saved, but the email did not send. An administrator can retry."}
+        </div>
+      ) : null}
+
+      {cancelled ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong>This claim was cancelled</strong>
+          {row.cancelledBy ? ` by ${row.cancelledBy}` : ""}
+          {row.cancelledAt
+            ? ` on ${row.cancelledAt.toLocaleString("en-CA")}`
+            : ""}
+          . Payments has been notified not to reimburse it.
+          {row.cancelReason ? (
+            <div className="mt-1">Reason: {row.cancelReason}</div>
+          ) : null}
         </div>
       ) : null}
 
@@ -83,7 +101,7 @@ export default async function ClaimDetailPage({
       ) : null}
 
       <section className="hl-card p-6">
-        <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+        <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
           Summary
         </h2>
         {totals ? (
@@ -100,7 +118,7 @@ export default async function ClaimDetailPage({
           <span className="text-sm uppercase tracking-wider text-hl-muted">
             Grand Total
           </span>
-          <span className="font-serif text-2xl font-semibold text-hl-green-700">
+          <span className="tracking-tight text-2xl font-semibold text-hl-green-700">
             {formatMoney(Number(row.totalAmount))}
           </span>
         </div>
@@ -146,7 +164,7 @@ export default async function ClaimDetailPage({
           ) : null}
           {claim.notes ? (
             <section className="hl-card p-6">
-              <h2 className="mb-2 font-serif text-xl font-semibold text-hl-green-700">
+              <h2 className="mb-2 tracking-tight text-xl font-semibold text-hl-green-700">
                 Notes
               </h2>
               <p className="whitespace-pre-wrap text-sm">{claim.notes}</p>
@@ -154,6 +172,8 @@ export default async function ClaimDetailPage({
           ) : null}
         </>
       ) : null}
+
+      {cancelled ? null : <CancelClaimForm claimId={row.id} />}
     </div>
   );
 }
@@ -180,7 +200,7 @@ function ClaimTable({
 }) {
   return (
     <section className="hl-card p-6">
-      <h2 className="mb-4 font-serif text-xl font-semibold text-hl-green-700">
+      <h2 className="mb-4 tracking-tight text-xl font-semibold text-hl-green-700">
         {title}
       </h2>
       <div className="overflow-x-auto">

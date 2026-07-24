@@ -1,43 +1,39 @@
 import Link from "next/link";
 import Image from "next/image";
 import { auth, signOut } from "@/auth";
+import { Logo } from "@/components/Logo";
+import { isBoardMember } from "@/lib/roles";
+import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
 import {
   LayoutDashboard,
   Plane,
   FileText,
   LogOut,
   BookOpen,
+  Users,
 } from "lucide-react";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/travel-claims", label: "Travel Claims", icon: Plane },
   { href: "/travel-claims/new", label: "New Claim", icon: FileText },
-  { href: "/policies", label: "Policies", icon: BookOpen },
+  { href: "/policies", label: "Resources", icon: BookOpen },
 ];
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   const user = session?.user;
+  const boardMember = isBoardMember(user?.email);
 
   return (
     <div className="min-h-screen bg-hl-cream">
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-hl-border bg-white md:flex">
-        <div className="flex items-center gap-3 border-b border-hl-border px-5 py-5">
-          <Image
-            src="/logo.png"
-            alt="Heritage Lab"
-            width={36}
-            height={36}
-            className="h-9 w-9 object-contain"
-          />
-          <div className="leading-tight">
-            <div className="font-serif text-lg font-semibold text-hl-ink">
-              Heritage Lab
-            </div>
-            <div className="text-xs uppercase tracking-wider text-hl-muted">
-              Intranet
-            </div>
+        <div className="border-b border-hl-border px-5 py-6">
+          <Link href="/dashboard" className="block">
+            <Logo height={28} priority />
+          </Link>
+          <div className="mt-2 text-[11px] font-medium uppercase tracking-[0.18em] text-hl-muted">
+            Intranet
           </div>
         </div>
 
@@ -52,6 +48,17 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               {item.label}
             </Link>
           ))}
+          {boardMember ? (
+            <a
+              href={BOARD_GENERAL_FOLDER.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-hl-ink transition hover:bg-hl-cream"
+            >
+              <Users className="h-4 w-4 text-hl-green-600" />
+              Board Folder
+            </a>
+          ) : null}
         </nav>
 
         <div className="border-t border-hl-border p-4">
@@ -76,6 +83,11 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               <div className="truncate text-xs text-hl-muted">
                 {user?.email}
               </div>
+              {boardMember ? (
+                <div className="mt-1 inline-flex rounded bg-hl-green-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-hl-green-700">
+                  Board
+                </div>
+              ) : null}
             </div>
           </div>
           <form
@@ -93,18 +105,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="md:ml-64">
         <header className="border-b border-hl-border bg-white/80 px-6 py-4 backdrop-blur md:hidden">
-          <div className="flex items-center gap-3">
-            <Image
-              src="/logo.png"
-              alt="Heritage Lab"
-              width={28}
-              height={28}
-              className="h-7 w-7 object-contain"
-            />
-            <div className="font-serif text-lg font-semibold">
-              Heritage Lab Intranet
-            </div>
-          </div>
+          <Link href="/dashboard" className="flex items-center gap-3">
+            <Logo height={24} priority />
+            <span className="text-xs font-medium uppercase tracking-[0.18em] text-hl-muted">
+              Intranet
+            </span>
+          </Link>
         </header>
         <div className="mx-auto max-w-5xl px-6 py-8">{children}</div>
       </main>

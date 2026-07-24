@@ -78,9 +78,12 @@ export const travelClaims = pgTable("travel_claim", {
   totalAmount: numeric("total_amount", { precision: 10, scale: 2 }).notNull(),
   // Full structured claim data (line items, meals, etc.)
   payload: jsonb("payload").notNull(),
-  status: text("status").notNull().default("submitted"), // submitted | emailed | failed
+  status: text("status").notNull().default("submitted"), // submitted | emailed | failed | cancelled
   emailMessageId: text("email_message_id"),
   emailError: text("email_error"),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelledBy: text("cancelled_by"),
+  cancelReason: text("cancel_reason"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

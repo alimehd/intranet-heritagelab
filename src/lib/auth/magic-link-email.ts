@@ -24,7 +24,7 @@ export function renderMagicLinkEmail({ url }: { url: string }): {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px; background:#ffffff; border:1px solid #e4e2db; border-radius:8px; padding:32px;">
             <tr>
               <td>
-                <div style="font-family: Georgia, serif; font-size:22px; font-weight:600; color:#3d5a3b; margin-bottom:4px;">
+                <div style="font-size:20px; font-weight:600; letter-spacing:-0.01em; color:#3d5a3b; margin-bottom:4px;">
                   Heritage Lab Intranet
                 </div>
                 <div style="font-size:13px; color:#6b7066; margin-bottom:24px;">

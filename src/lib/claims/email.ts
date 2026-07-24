@@ -1,16 +1,14 @@
-import { getClaimsRecipient, getMailFrom, getResend } from "@/lib/email";
-import { renderClaimPdf } from "./pdf";
 import {
-  computeTotals,
-  formatMoney,
-  type TravelClaimInput,
-} from "./schema";
+  getCancellationRouting,
+  getClaimRouting,
+  getMailFrom,
+  getResend,
+} from "@/lib/email";
+import { renderClaimPdf } from "./pdf";
+import { appendReceiptsToClaimPdf, type ReceiptAttachment } from "./receipts";
+import { computeTotals, formatMoney, type TravelClaimInput } from "./schema";
 
-export type ReceiptAttachment = {
-  filename: string;
-  content: Buffer;
-  contentType?: string;
-};
+export type { ReceiptAttachment };
 
 export async function emailTravelClaim(args: {
   claim: TravelClaimInput;
@@ -20,9 +18,21 @@ export async function emailTravelClaim(args: {
 }): Promise<{ id: string | null }> {
   const { claim, claimId, submittedAt, receipts } = args;
   const totals = computeTotals(claim);
-  const pdf = await renderClaimPdf({ claim, submittedAt, claimId });
+
+  const basePdf = await renderClaimPdf({
+    claim,
+    submittedAt,
+    claimId,
+    receiptNames: receipts.map((r) => r.filename),
+  });
+  const { pdf, appended, unsupported } = await appendReceiptsToClaimPdf(
+    basePdf,
+    receipts,
+  );
 
   const subject = `Travel Claim — ${claim.fullName} — ${claim.startDate} to ${claim.endDate} — ${formatMoney(totals.grandTotal)}`;
+
+  const receiptSummary = describeReceipts(appended.length, unsupported.length);
 
   const text = [
     `New travel expense claim submitted via the Heritage Lab Intranet.`,
@@ -43,9 +53,8 @@ export async function emailTravelClaim(args: {
     claim.notes ? `Notes:\n${claim.notes}\n` : ``,
     `Claim ID: ${claimId}`,
     `Submitted: ${submittedAt.toISOString()}`,
-    receipts.length
-      ? `\n${receipts.length} receipt file(s) attached.`
-      : `\nNo receipts attached.`,
+    ``,
+    receiptSummary,
   ].join("\n");
 
   const html = `
@@ -69,7 +78,7 @@ export async function emailTravelClaim(args: {
       </table>
       ${claim.notes ? `<div style="margin-top:16px;"><div style="color:#6b7066; font-size:12px; text-transform:uppercase; letter-spacing:.05em;">Notes</div><div style="white-space:pre-wrap;">${escapeHtml(claim.notes)}</div></div>` : ""}
       <p style="margin-top:24px; font-size:12px; color:#6b7066;">
-        Full claim PDF is attached.${receipts.length ? ` ${receipts.length} receipt file(s) also attached.` : " No receipts were attached."}<br/>
+        ${escapeHtml(receiptSummary)}<br/>
         Claim ID: <code>${claimId}</code>
       </p>
     </div>
@@ -81,17 +90,20 @@ export async function emailTravelClaim(args: {
       content: pdf,
       contentType: "application/pdf",
     },
-    ...receipts.map((r) => ({
+    // Anything pdf-lib could not embed still travels with the claim.
+    ...unsupported.map((r) => ({
       filename: r.filename,
       content: r.content,
       contentType: r.contentType,
     })),
   ];
 
+  const { to, cc } = getClaimRouting(claim.email);
   const resend = getResend();
   const { data, error } = await resend.emails.send({
     from: getMailFrom(),
-    to: [getClaimsRecipient()],
+    to,
+    ...(cc.length > 0 ? { cc } : {}),
     replyTo: claim.email,
     subject,
     text,
@@ -103,6 +115,104 @@ export async function emailTravelClaim(args: {
     throw new Error(`Resend error: ${error.message || JSON.stringify(error)}`);
   }
   return { id: data?.id ?? null };
+}
+
+export async function emailClaimCancellation(args: {
+  claimId: string;
+  submitterName: string;
+  submitterEmail: string;
+  purpose: string;
+  startDate: string;
+  endDate: string;
+  totalAmount: number;
+  reason: string;
+  cancelledBy: string;
+  cancelledAt: Date;
+}): Promise<{ id: string | null }> {
+  const {
+    claimId,
+    submitterName,
+    submitterEmail,
+    purpose,
+    startDate,
+    endDate,
+    totalAmount,
+    reason,
+    cancelledBy,
+    cancelledAt,
+  } = args;
+
+  const subject = `CANCELLED — Travel Claim — ${submitterName} — ${startDate} to ${endDate} — ${formatMoney(totalAmount)}`;
+
+  const text = [
+    `A travel expense claim has been cancelled in the Heritage Lab Intranet.`,
+    `Do not process this claim for payment.`,
+    ``,
+    `Submitter:    ${submitterName} <${submitterEmail}>`,
+    `Purpose:      ${purpose}`,
+    `Dates:        ${startDate} → ${endDate}`,
+    `Amount:       ${formatMoney(totalAmount)}`,
+    ``,
+    `Cancelled by: ${cancelledBy}`,
+    `Cancelled at: ${cancelledAt.toISOString()}`,
+    reason ? `Reason:       ${reason}` : `Reason:       (none given)`,
+    ``,
+    `Claim ID: ${claimId}`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; color:#1f2421; max-width:640px;">
+      <h2 style="color:#b42318; margin:0 0 4px;">Travel Claim Cancelled</h2>
+      <p style="color:#6b7066; margin:0 0 16px; font-size:13px;">Do not process this claim for payment.</p>
+      <table style="border-collapse:collapse; width:100%; font-size:14px;">
+        <tr><td style="padding:4px 8px; color:#6b7066;">Submitter</td><td style="padding:4px 8px;"><strong>${escapeHtml(submitterName)}</strong> &lt;${escapeHtml(submitterEmail)}&gt;</td></tr>
+        <tr><td style="padding:4px 8px; color:#6b7066;">Purpose</td><td style="padding:4px 8px;">${escapeHtml(purpose)}</td></tr>
+        <tr><td style="padding:4px 8px; color:#6b7066;">Dates</td><td style="padding:4px 8px;">${startDate} → ${endDate}</td></tr>
+        <tr><td style="padding:4px 8px; color:#6b7066;">Amount</td><td style="padding:4px 8px;"><strong>${formatMoney(totalAmount)}</strong></td></tr>
+        <tr><td style="padding:4px 8px; color:#6b7066;">Cancelled by</td><td style="padding:4px 8px;">${escapeHtml(cancelledBy)}</td></tr>
+        <tr><td style="padding:4px 8px; color:#6b7066;">Reason</td><td style="padding:4px 8px;">${reason ? escapeHtml(reason) : "<em>None given</em>"}</td></tr>
+      </table>
+      <p style="margin-top:24px; font-size:12px; color:#6b7066;">
+        Cancelled ${cancelledAt.toISOString()}<br/>
+        Claim ID: <code>${claimId}</code>
+      </p>
+    </div>
+  `;
+
+  const { to, cc } = getCancellationRouting(submitterEmail);
+  const resend = getResend();
+  const { data, error } = await resend.emails.send({
+    from: getMailFrom(),
+    to,
+    ...(cc.length > 0 ? { cc } : {}),
+    replyTo: submitterEmail,
+    subject,
+    text,
+    html,
+  });
+
+  if (error) {
+    throw new Error(`Resend error: ${error.message || JSON.stringify(error)}`);
+  }
+  return { id: data?.id ?? null };
+}
+
+function describeReceipts(appended: number, unsupported: number): string {
+  if (appended === 0 && unsupported === 0) {
+    return "No receipts were attached.";
+  }
+  const parts: string[] = [];
+  if (appended > 0) {
+    parts.push(
+      `${appended} receipt${appended === 1 ? "" : "s"} appended to the end of the claim PDF.`,
+    );
+  }
+  if (unsupported > 0) {
+    parts.push(
+      `${unsupported} receipt${unsupported === 1 ? "" : "s"} could not be embedded and ${unsupported === 1 ? "is" : "are"} attached separately.`,
+    );
+  }
+  return parts.join(" ");
 }
 
 function escapeHtml(s: string): string {

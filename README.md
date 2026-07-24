@@ -9,7 +9,8 @@ Internal web app for Heritage Lab staff and board members. First feature: **trav
 - **NextAuth 5** with magic-link sign-in (one-click links sent by Resend) and domain-based access control
 - **Drizzle ORM** on **Neon Postgres**
 - **Resend** for transactional email
-- **@react-pdf/renderer** for the claim PDF
+- **@react-pdf/renderer** for the claim PDF, **pdf-lib** to append receipts to it
+- **Inter** (via `next/font`) as the interface typeface
 
 ## Local development
 
@@ -29,9 +30,11 @@ You need:
 - `AUTH_SECRET` — run `openssl rand -base64 32`
 - `ALLOWED_EMAIL_DOMAINS` — comma-separated list of allowed email domains (defaults to `heritagelab.ca`)
 - `ALLOWED_EMAILS` — optional individual emails outside those domains (e.g. board members on personal Gmail)
+- `BOARD_MEMBER_EMAILS` — optional override of the Board of Directors list in `src/lib/roles.ts`
 - `RESEND_API_KEY` from resend.com
 - `MAIL_FROM` — for production, an address on a domain you've verified in Resend
 - `CLAIMS_RECIPIENT` — defaults to `payments@heritagelab.ca`
+- `CLAIM_APPROVER_OVERRIDES` — optional `submitter:approver` pairs; the approver receives the claim and `CLAIMS_RECIPIENT` is copied
 
 ### 3. Push the database schema
 ```bash
@@ -71,16 +74,31 @@ No separate identity provider is needed. Users type their `@heritagelab.ca` emai
 6. From your DNS provider, point `intranet.heritagelab.ca` → `cname.vercel-dns.com` per Vercel's instructions.
 
 ### First run after deploy
-- Sign in with a Google account whose email is in `ALLOWED_EMAILS`.
+- Request a sign-in link with an allowlisted address.
 - Submit a test claim; check the inbox at `payments@heritagelab.ca` for the PDF.
 
 ## Access control
 
-Anyone with an email on a domain in `ALLOWED_EMAIL_DOMAINS` (default: `heritagelab.ca`) can sign in. You can also list individual exceptions in `ALLOWED_EMAILS` (e.g. board members using a personal Gmail). Everyone else is rejected at the OAuth callback with `AccessDenied`.
-
-The Google sign-in is configured with the `hd=heritagelab.ca` hint, so Workspace users land on their work account picker directly. Users with allowlisted personal emails can still switch accounts at the Google prompt.
+Anyone with an email on a domain in `ALLOWED_EMAIL_DOMAINS` (default: `heritagelab.ca`) can sign in. You can also list individual exceptions in `ALLOWED_EMAILS` (e.g. board members using a personal Gmail). Everyone else is rejected with `AccessDenied`.
 
 To change access, update the env vars in Vercel — they apply on the next request, no redeploy needed.
+
+### Roles
+
+| | Everyone on a Heritage Lab domain | Board members |
+|---|---|---|
+| Submit / view / cancel own travel claims | ✅ | ✅ |
+| Business Travel Policy | ✅ | ✅ |
+| BoD general Drive folder | — | ✅ |
+| Cancel any claim | — | ✅ |
+
+Board membership lives in `src/lib/roles.ts` and is overridable with `BOARD_MEMBER_EMAILS`. Shared document links live in `src/lib/resources.ts`.
+
+## Travel claims
+
+- Receipts (PDF, JPG, PNG) are **appended as pages to the claim PDF** so payments receives one document. Formats pdf-lib can't embed (HEIC, WebP) travel as separate attachments instead.
+- Claims are emailed to `CLAIMS_RECIPIENT`. Submitters listed in `CLAIM_APPROVER_OVERRIDES` route to their approver first with payments in CC — by default `ali.mehdi@heritagelab.ca` → `elias.moukannas@heritagelab.ca`.
+- A claim can be cancelled by its submitter (or any board member), which flags it in the database and emails a "do not process" notice to payments.
 
 ## Where things live
 
@@ -92,22 +110,24 @@ src/
       travel-claims/
         new/                # form + server action
         [id]/               # claim detail page
-      policies/
-    signin/                 # sign-in page (Google)
+      policies/               # policy + board resource links
+    signin/                 # magic-link sign-in
     api/auth/[...nextauth]/ # NextAuth handlers
   auth.ts                   # NextAuth config + allowlist gate
   middleware.ts             # auth gate for all routes
-  components/               # shared UI (AppShell, StatusBadge)
+  components/               # shared UI (AppShell, Logo, StatusBadge)
   lib/
     allowlist.ts
+    roles.ts                # board membership
+    resources.ts            # shared document links
     db/                     # Drizzle schema + client
-    claims/                 # schema, totals, PDF, email
-    email.ts                # Resend client
+    claims/                 # schema, totals, PDF, receipt merging, email
+    email.ts                # Resend client + claim routing
 ```
 
 ## Roadmap (next features)
 
-- Policies content + search
+- More policy documents
 - Admin view of all claims (with retry-email button for failed sends)
 - More forms (vacation requests, expense reports, etc.)
 - Document library

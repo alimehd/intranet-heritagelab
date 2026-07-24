@@ -125,10 +125,12 @@ function ClaimDoc({
   claim,
   submittedAt,
   claimId,
+  receiptNames = [],
 }: {
   claim: TravelClaimInput;
   submittedAt: Date;
   claimId: string;
+  receiptNames?: string[];
 }) {
   const t = computeTotals(claim);
   return (
@@ -315,6 +317,22 @@ function ClaimDoc({
           </>
         ) : null}
 
+        {receiptNames.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>
+              Receipts ({receiptNames.length})
+            </Text>
+            <Text style={{ fontSize: 9, color: colors.muted, marginBottom: 3 }}>
+              Attached on the following pages of this document.
+            </Text>
+            {receiptNames.map((name, i) => (
+              <Text key={i} style={{ fontSize: 9, marginBottom: 1 }}>
+                {i + 1}. {name}
+              </Text>
+            ))}
+          </>
+        ) : null}
+
         <View style={styles.totalsBox}>
           <View style={styles.row}>
             <Text style={styles.label}>Airfare</Text>
@@ -372,6 +390,7 @@ export async function renderClaimPdf(args: {
   claim: TravelClaimInput;
   submittedAt: Date;
   claimId: string;
+  receiptNames?: string[];
 }): Promise<Buffer> {
   return renderToBuffer(<ClaimDoc {...args} />);
 }

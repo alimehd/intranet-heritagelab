@@ -4,8 +4,10 @@ import { db } from "@/lib/db";
 import { travelClaims } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { formatMoney } from "@/lib/claims/schema";
-import { Plane, FileText, BookOpen } from "lucide-react";
+import { Plane, FileText, BookOpen, Users } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { isBoardMember } from "@/lib/roles";
+import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
 
 export const metadata = { title: "Dashboard — Heritage Lab" };
 
@@ -20,15 +22,16 @@ export default async function DashboardPage() {
     .orderBy(desc(travelClaims.createdAt))
     .limit(5);
 
-  const totalSubmitted = recent.reduce(
-    (s, c) => s + Number(c.totalAmount),
-    0,
-  );
+  const totalSubmitted = recent
+    .filter((c) => c.status !== "cancelled")
+    .reduce((s, c) => s + Number(c.totalAmount), 0);
+
+  const boardMember = isBoardMember(session?.user?.email);
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-serif text-3xl font-semibold text-hl-ink">
+        <h1 className="tracking-tight text-3xl font-semibold text-hl-ink">
           Welcome{session?.user?.name ? `, ${session.user.name.split(" ")[0]}` : ""}
         </h1>
         <p className="mt-1 text-sm text-hl-muted">
@@ -47,19 +50,28 @@ export default async function DashboardPage() {
           href="/travel-claims"
           icon={<Plane className="h-5 w-5" />}
           title="My claims"
-          description="Review claims you've submitted and their status."
+          description="Review or cancel claims you've submitted."
         />
         <ActionCard
           href="/policies"
           icon={<BookOpen className="h-5 w-5" />}
-          title="Policies"
-          description="Travel, expense, and HR policies (coming soon)."
+          title="Resources"
+          description="Business Travel Policy and shared documents."
         />
+        {boardMember ? (
+          <ActionCard
+            href={BOARD_GENERAL_FOLDER.href}
+            external
+            icon={<Users className="h-5 w-5" />}
+            title="Board folder"
+            description="Meeting packages, minutes, and governance documents."
+          />
+        ) : null}
       </div>
 
       <section className="hl-card p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-serif text-xl font-semibold text-hl-ink">
+          <h2 className="tracking-tight text-xl font-semibold text-hl-ink">
             Recent claims
           </h2>
           <Link href="/travel-claims" className="hl-btn-ghost">
@@ -131,24 +143,44 @@ function ActionCard({
   icon,
   title,
   description,
+  external = false,
 }: {
   href: string;
   icon: React.ReactNode;
   title: string;
   description: string;
+  external?: boolean;
 }) {
-  return (
-    <Link
-      href={href}
-      className="hl-card group block p-5 transition hover:border-hl-green-600 hover:shadow-md"
-    >
+  const className =
+    "hl-card group block p-5 transition hover:border-hl-green-600 hover:shadow-md";
+  const body = (
+    <>
       <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-md bg-hl-green-50 text-hl-green-700">
         {icon}
       </div>
-      <div className="font-serif text-lg font-semibold text-hl-ink group-hover:text-hl-green-700">
+      <div className="text-lg font-semibold tracking-tight text-hl-ink group-hover:text-hl-green-700">
         {title}
       </div>
       <p className="mt-1 text-sm text-hl-muted">{description}</p>
+    </>
+  );
+
+  if (external) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+      >
+        {body}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href} className={className}>
+      {body}
     </Link>
   );
 }

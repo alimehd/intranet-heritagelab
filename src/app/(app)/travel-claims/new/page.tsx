@@ -8,7 +8,7 @@ export default async function NewClaimPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="font-serif text-3xl font-semibold text-hl-ink">
+        <h1 className="tracking-tight text-3xl font-semibold text-hl-ink">
           New Travel Expense Claim
         </h1>
         <p className="mt-1 text-sm text-hl-muted">

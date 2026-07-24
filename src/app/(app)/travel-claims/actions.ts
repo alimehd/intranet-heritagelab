@@ -3,14 +3,20 @@
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { travelClaims } from "@/lib/db/schema";
-import { emailTravelClaim, type ReceiptAttachment } from "@/lib/claims/email";
+import {
+  emailClaimCancellation,
+  emailTravelClaim,
+  type ReceiptAttachment,
+} from "@/lib/claims/email";
 import {
   computeTotals,
   travelClaimSchema,
   type TravelClaimInput,
 } from "@/lib/claims/schema";
+import { isBoardMember } from "@/lib/roles";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { eq } from "drizzle-orm";
 
 const MAX_RECEIPT_BYTES = 8 * 1024 * 1024; // 8 MB per file
 const MAX_TOTAL_RECEIPT_BYTES = 20 * 1024 * 1024; // 20 MB total
@@ -145,8 +151,84 @@ export async function submitTravelClaim(
   redirect(`/travel-claims/${inserted.id}?submitted=1`);
 }
 
-// Small helper to keep the action file readable without importing eq from drizzle in many places.
-import { eq } from "drizzle-orm";
+export type CancelState = { ok: boolean; error?: string };
+
+export async function cancelTravelClaim(
+  _prev: CancelState | undefined,
+  formData: FormData,
+): Promise<CancelState> {
+  const session = await auth();
+  const actor = session?.user?.email;
+  if (!session?.user?.id || !actor) {
+    return { ok: false, error: "You must be signed in to cancel a claim." };
+  }
+
+  const claimId = String(formData.get("claimId") ?? "");
+  if (!claimId) return { ok: false, error: "Missing claim reference." };
+
+  const reason = String(formData.get("reason") ?? "")
+    .trim()
+    .slice(0, 500);
+
+  const [row] = await db
+    .select()
+    .from(travelClaims)
+    .where(eqClaimId(claimId))
+    .limit(1);
+
+  if (!row) return { ok: false, error: "Claim not found." };
+
+  // Submitters can withdraw their own claims; board members can cancel any.
+  const canCancel = row.userId === session.user.id || isBoardMember(actor);
+  if (!canCancel) {
+    return { ok: false, error: "You do not have permission to cancel this claim." };
+  }
+  if (row.status === "cancelled") {
+    return { ok: false, error: "This claim is already cancelled." };
+  }
+
+  const cancelledAt = new Date();
+  await db
+    .update(travelClaims)
+    .set({
+      status: "cancelled",
+      cancelledAt,
+      cancelledBy: actor,
+      cancelReason: reason || null,
+    })
+    .where(eqClaimId(claimId));
+
+  try {
+    await emailClaimCancellation({
+      claimId,
+      submitterName: row.submitterName,
+      submitterEmail: row.submitterEmail,
+      purpose: row.purpose,
+      startDate: row.startDate,
+      endDate: row.endDate,
+      totalAmount: Number(row.totalAmount),
+      reason,
+      cancelledBy: actor,
+      cancelledAt,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await db
+      .update(travelClaims)
+      .set({ emailError: `Cancellation notice failed: ${msg}` })
+      .where(eqClaimId(claimId));
+    return {
+      ok: false,
+      error: `Claim was cancelled, but notifying payments failed: ${msg}`,
+    };
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/travel-claims");
+  revalidatePath(`/travel-claims/${claimId}`);
+  return { ok: true };
+}
+
 function eqClaimId(id: string) {
   return eq(travelClaims.id, id);
 }
