@@ -201,6 +201,39 @@ function ClaimDoc({
           </>
         ) : null}
 
+        {t.privateHostNights > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>
+              Private Host Accommodation ({formatMoney(RATES.privateHostPerNight)}{" "}
+              / night)
+            </Text>
+            <View style={styles.table}>
+              <View style={styles.tr}>
+                <TH flex={2}>Host</TH>
+                <TH flex={2}>Host Email</TH>
+                <TH>Arrival</TH>
+                <TH>Departure</TH>
+                <TH align="right">Nights</TH>
+                <TH align="right">Amount</TH>
+              </View>
+              <View style={styles.tr}>
+                <TD flex={2}>{claim.privateHost.hostName || "—"}</TD>
+                <TD flex={2}>{claim.privateHost.hostEmail || "—"}</TD>
+                <TD>{claim.privateHost.checkIn || "—"}</TD>
+                <TD>{claim.privateHost.checkOut || "—"}</TD>
+                <TD align="right">{t.privateHostNights}</TD>
+                <TD align="right">{formatMoney(t.privateHost)}</TD>
+              </View>
+            </View>
+            <View style={[styles.row, { marginTop: 4 }]}>
+              <Text style={styles.label}>Host Address</Text>
+              <Text style={styles.value}>
+                {claim.privateHost.hostAddress || "—"}
+              </Text>
+            </View>
+          </>
+        ) : null}
+
         {claim.transport.length > 0 ? (
           <>
             <Text style={styles.sectionTitle}>Ground Transportation</Text>
@@ -341,6 +374,10 @@ function ClaimDoc({
           <View style={styles.row}>
             <Text style={styles.label}>Hotel</Text>
             <Text style={styles.value}>{formatMoney(t.hotel)}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Private Host</Text>
+            <Text style={styles.value}>{formatMoney(t.privateHost)}</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Ground Transport</Text>

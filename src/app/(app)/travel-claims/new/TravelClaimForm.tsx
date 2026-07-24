@@ -6,6 +6,7 @@ import {
   RATES,
   TRAVEL_TYPES,
   computeTotals,
+  countNights,
   eachDate,
   formatMoney,
   type TravelClaimInput,
@@ -50,6 +51,13 @@ export function TravelClaimForm({
     checkOut: "",
     total: "",
   });
+  const [privateHost, setPrivateHost] = useState({
+    hostName: "",
+    hostEmail: "",
+    hostAddress: "",
+    checkIn: "",
+    checkOut: "",
+  });
 
   const [transport, setTransport] = useState<TransportRow[]>([]);
   const [km, setKm] = useState<KmRow[]>([]);
@@ -92,6 +100,7 @@ export function TravelClaimForm({
         checkOut: hotel.checkOut,
         total: parseFloat(hotel.total || "0") || 0,
       },
+      privateHost,
       transport,
       km,
       meals,
@@ -107,6 +116,7 @@ export function TravelClaimForm({
       endDate,
       airfare,
       hotel,
+      privateHost,
       transport,
       km,
       meals,
@@ -116,6 +126,8 @@ export function TravelClaimForm({
   );
 
   const totals = computeTotals(claim);
+  const privateHostNights = totals.privateHostNights;
+  const privateHostTouched = Object.values(privateHost).some((v) => v !== "");
 
   function addTransport() {
     setTransport((rs) => [
@@ -148,6 +160,28 @@ export function TravelClaimForm({
         error: "Please fill in all required trip details.",
       });
       return;
+    }
+    if (privateHostTouched) {
+      if (privateHostNights < 1) {
+        setState({
+          ok: false,
+          error:
+            "Private host stays need an arrival and a departure at least one night apart.",
+        });
+        return;
+      }
+      if (
+        !privateHost.hostName ||
+        !privateHost.hostAddress ||
+        !privateHost.hostEmail
+      ) {
+        setState({
+          ok: false,
+          error:
+            "Private host stays require the host's name, email, and address.",
+        });
+        return;
+      }
     }
     const fd = new FormData();
     fd.append("payload", JSON.stringify(claim));
@@ -325,6 +359,85 @@ export function TravelClaimForm({
             />
           </div>
         </div>
+      </section>
+
+      {/* Private host */}
+      <section className="hl-card p-6">
+        <h2 className="tracking-tight text-xl font-semibold text-hl-green-700">
+          Private Host Accommodation
+        </h2>
+        <p className="mb-4 text-sm text-hl-muted">
+          If you stayed with a private host instead of a hotel, you are
+          reimbursed {formatMoney(RATES.privateHostPerNight)} per night. Leave
+          blank if it doesn&apos;t apply.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="hl-label">Arrival</label>
+            <input
+              type="date"
+              className="hl-input"
+              value={privateHost.checkIn}
+              onChange={(e) =>
+                setPrivateHost((p) => ({ ...p, checkIn: e.target.value }))
+              }
+            />
+          </div>
+          <div>
+            <label className="hl-label">Departure</label>
+            <input
+              type="date"
+              className="hl-input"
+              value={privateHost.checkOut}
+              onChange={(e) =>
+                setPrivateHost((p) => ({ ...p, checkOut: e.target.value }))
+              }
+            />
+          </div>
+          <div>
+            <label className="hl-label">Host full name</label>
+            <input
+              className="hl-input"
+              value={privateHost.hostName}
+              onChange={(e) =>
+                setPrivateHost((p) => ({ ...p, hostName: e.target.value }))
+              }
+            />
+          </div>
+          <div>
+            <label className="hl-label">Host email</label>
+            <input
+              type="email"
+              className="hl-input"
+              value={privateHost.hostEmail}
+              onChange={(e) =>
+                setPrivateHost((p) => ({ ...p, hostEmail: e.target.value }))
+              }
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="hl-label">Host address</label>
+            <textarea
+              className="hl-input min-h-[60px]"
+              value={privateHost.hostAddress}
+              onChange={(e) =>
+                setPrivateHost((p) => ({ ...p, hostAddress: e.target.value }))
+              }
+              placeholder="Street, city, province, postal code"
+            />
+          </div>
+        </div>
+        {privateHostNights > 0 ? (
+          <div className="mt-4 flex items-center justify-between rounded-md bg-hl-green-50 px-4 py-3 text-sm">
+            <span className="text-hl-green-700">
+              {privateHostNights} night{privateHostNights === 1 ? "" : "s"} ×{" "}
+              {formatMoney(RATES.privateHostPerNight)}
+            </span>
+            <span className="font-semibold tabular-nums text-hl-green-700">
+              {formatMoney(totals.privateHost)}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       {/* Ground transport */}
@@ -792,6 +905,7 @@ export function TravelClaimForm({
         <dl className="grid grid-cols-2 gap-y-1 text-sm md:grid-cols-3">
           <SummaryRow label="Airfare" value={totals.airfare} />
           <SummaryRow label="Hotel" value={totals.hotel} />
+          <SummaryRow label="Private host" value={totals.privateHost} />
           <SummaryRow label="Ground transport" value={totals.transport} />
           <SummaryRow label="Personal vehicle" value={totals.km} />
           <SummaryRow label="Meals" value={totals.meals} />

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { travelClaims } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { formatMoney } from "@/lib/claims/schema";
-import { Plane, FileText, BookOpen, Users } from "lucide-react";
+import { Plane, FileText, BookOpen, BookUser, Users } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isBoardMember } from "@/lib/roles";
 import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
@@ -57,6 +57,12 @@ export default async function DashboardPage() {
           icon={<BookOpen className="h-5 w-5" />}
           title="Resources"
           description="Business Travel Policy and shared documents."
+        />
+        <ActionCard
+          href="/directory"
+          icon={<BookUser className="h-5 w-5" />}
+          title="Directory"
+          description="Staff and board contact list (coming soon)."
         />
         {boardMember ? (
           <ActionCard

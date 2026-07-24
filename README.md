@@ -96,6 +96,9 @@ Board membership lives in `src/lib/roles.ts` and is overridable with `BOARD_MEMB
 
 ## Travel claims
 
+Rates live in `RATES` in `src/lib/claims/schema.ts`: meals ($21 breakfast / $27 lunch / $47 supper / $20 incidentals), mileage ($0.605/km), and private host lodging ($80/night).
+
+- **Private host lodging** is an alternative to a hotel: the claimant records the host's name, email, and address plus arrival and departure dates, and is reimbursed $80 per night. The night count is derived server-side from the dates rather than accepted from the browser, so the payout can't be inflated by editing the request. The allowance goes to the claimant, not the host — the host is never emailed.
 - Receipts (PDF, JPG, PNG) are **appended as pages to the claim PDF** so payments receives one document. Formats pdf-lib can't embed (HEIC, WebP) travel as separate attachments instead.
 - Claims are emailed to `CLAIMS_RECIPIENT`. Submitters listed in `CLAIM_APPROVER_OVERRIDES` route to their approver first with payments in CC — by default `ali.mehdi@heritagelab.ca` → `elias.moukannas@heritagelab.ca`.
 - A claim can be cancelled by its submitter (or any board member), which flags it in the database and emails a "do not process" notice to payments.
@@ -111,6 +114,7 @@ src/
         new/                # form + server action
         [id]/               # claim detail page
       policies/               # policy + board resource links
+      directory/              # staff/board contacts (placeholder)
     signin/                 # magic-link sign-in
     api/auth/[...nextauth]/ # NextAuth handlers
   auth.ts                   # NextAuth config + allowlist gate
@@ -127,6 +131,8 @@ src/
 
 ## Roadmap (next features)
 
+- Directory content (staff and board contacts) — the page is a placeholder today
+- Store receipts in Vercel Blob so claims stay self-contained after the email is sent
 - More policy documents
 - Admin view of all claims (with retry-email button for failed sends)
 - More forms (vacation requests, expense reports, etc.)

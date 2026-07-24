@@ -6,7 +6,12 @@ import {
 } from "@/lib/email";
 import { renderClaimPdf } from "./pdf";
 import { appendReceiptsToClaimPdf, type ReceiptAttachment } from "./receipts";
-import { computeTotals, formatMoney, type TravelClaimInput } from "./schema";
+import {
+  computeTotals,
+  formatMoney,
+  RATES,
+  type TravelClaimInput,
+} from "./schema";
 
 export type { ReceiptAttachment };
 
@@ -44,12 +49,23 @@ export async function emailTravelClaim(args: {
     ``,
     `Airfare:           ${formatMoney(totals.airfare)}`,
     `Hotel:             ${formatMoney(totals.hotel)}`,
+    `Private host:      ${formatMoney(totals.privateHost)}${totals.privateHostNights > 0 ? ` (${totals.privateHostNights} night(s))` : ""}`,
     `Ground transport:  ${formatMoney(totals.transport)}`,
     `Personal vehicle:  ${formatMoney(totals.km)}`,
     `Meals:             ${formatMoney(totals.meals)}`,
     `Other:             ${formatMoney(totals.other)}`,
     `GRAND TOTAL:       ${formatMoney(totals.grandTotal)}`,
     ``,
+    totals.privateHostNights > 0
+      ? [
+          `Private host (paid to the claimant at ${formatMoney(RATES.privateHostPerNight)}/night):`,
+          `  Name:    ${claim.privateHost.hostName}`,
+          `  Email:   ${claim.privateHost.hostEmail}`,
+          `  Address: ${claim.privateHost.hostAddress}`,
+          `  Stay:    ${claim.privateHost.checkIn} → ${claim.privateHost.checkOut}`,
+          ``,
+        ].join("\n")
+      : ``,
     claim.notes ? `Notes:\n${claim.notes}\n` : ``,
     `Claim ID: ${claimId}`,
     `Submitted: ${submittedAt.toISOString()}`,
@@ -70,12 +86,27 @@ export async function emailTravelClaim(args: {
       <table style="border-collapse:collapse; width:100%; margin-top:16px; font-size:14px; border:1px solid #e4e2db;">
         <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Airfare</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.airfare)}</td></tr>
         <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Hotel</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.hotel)}</td></tr>
+        <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Private host${totals.privateHostNights > 0 ? ` (${totals.privateHostNights} × ${formatMoney(RATES.privateHostPerNight)})` : ""}</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.privateHost)}</td></tr>
         <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Ground transport</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.transport)}</td></tr>
         <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Personal vehicle</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.km)}</td></tr>
         <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Meals</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.meals)}</td></tr>
         <tr><td style="padding:6px 10px; border-bottom:1px solid #e4e2db;">Other</td><td style="padding:6px 10px; border-bottom:1px solid #e4e2db; text-align:right;">${formatMoney(totals.other)}</td></tr>
         <tr style="background:#f8f6f1;"><td style="padding:8px 10px; font-weight:bold;">Grand Total</td><td style="padding:8px 10px; text-align:right; font-weight:bold; color:#3d5a3b;">${formatMoney(totals.grandTotal)}</td></tr>
       </table>
+      ${
+        totals.privateHostNights > 0
+          ? `<div style="margin-top:16px;">
+        <div style="color:#6b7066; font-size:12px; text-transform:uppercase; letter-spacing:.05em;">Private host</div>
+        <table style="border-collapse:collapse; width:100%; font-size:14px;">
+          <tr><td style="padding:4px 8px; color:#6b7066;">Name</td><td style="padding:4px 8px;">${escapeHtml(claim.privateHost.hostName)}</td></tr>
+          <tr><td style="padding:4px 8px; color:#6b7066;">Email</td><td style="padding:4px 8px;">${escapeHtml(claim.privateHost.hostEmail)}</td></tr>
+          <tr><td style="padding:4px 8px; color:#6b7066;">Address</td><td style="padding:4px 8px; white-space:pre-wrap;">${escapeHtml(claim.privateHost.hostAddress)}</td></tr>
+          <tr><td style="padding:4px 8px; color:#6b7066;">Stay</td><td style="padding:4px 8px;">${claim.privateHost.checkIn} → ${claim.privateHost.checkOut} (${totals.privateHostNights} night${totals.privateHostNights === 1 ? "" : "s"})</td></tr>
+        </table>
+        <p style="margin:6px 0 0; font-size:12px; color:#6b7066;">The nightly allowance is reimbursed to the claimant, not paid to the host.</p>
+      </div>`
+          : ""
+      }
       ${claim.notes ? `<div style="margin-top:16px;"><div style="color:#6b7066; font-size:12px; text-transform:uppercase; letter-spacing:.05em;">Notes</div><div style="white-space:pre-wrap;">${escapeHtml(claim.notes)}</div></div>` : ""}
       <p style="margin-top:24px; font-size:12px; color:#6b7066;">
         ${escapeHtml(receiptSummary)}<br/>

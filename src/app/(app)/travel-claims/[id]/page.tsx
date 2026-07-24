@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import {
   computeTotals,
   formatMoney,
+  RATES,
   travelClaimSchema,
 } from "@/lib/claims/schema";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -108,6 +109,7 @@ export default async function ClaimDetailPage({
           <dl className="grid grid-cols-2 gap-y-1 text-sm md:grid-cols-3">
             <SummaryRow label="Airfare" value={totals.airfare} />
             <SummaryRow label="Hotel" value={totals.hotel} />
+            <SummaryRow label="Private host" value={totals.privateHost} />
             <SummaryRow label="Ground transport" value={totals.transport} />
             <SummaryRow label="Personal vehicle" value={totals.km} />
             <SummaryRow label="Meals" value={totals.meals} />
@@ -126,6 +128,40 @@ export default async function ClaimDetailPage({
 
       {claim ? (
         <>
+          {totals && totals.privateHostNights > 0 ? (
+            <section className="hl-card p-6">
+              <h2 className="mb-1 tracking-tight text-xl font-semibold text-hl-green-700">
+                Private host
+              </h2>
+              <p className="mb-4 text-sm text-hl-muted">
+                {totals.privateHostNights} night
+                {totals.privateHostNights === 1 ? "" : "s"} ×{" "}
+                {formatMoney(RATES.privateHostPerNight)}, reimbursed to the
+                claimant.
+              </p>
+              <dl className="grid gap-y-1 text-sm sm:grid-cols-[140px_1fr]">
+                <dt className="text-hl-muted">Host</dt>
+                <dd>{claim.privateHost.hostName}</dd>
+                <dt className="text-hl-muted">Host email</dt>
+                <dd>
+                  <a
+                    href={`mailto:${claim.privateHost.hostEmail}`}
+                    className="text-hl-green-700 hover:underline"
+                  >
+                    {claim.privateHost.hostEmail}
+                  </a>
+                </dd>
+                <dt className="text-hl-muted">Address</dt>
+                <dd className="whitespace-pre-wrap">
+                  {claim.privateHost.hostAddress}
+                </dd>
+                <dt className="text-hl-muted">Stay</dt>
+                <dd>
+                  {claim.privateHost.checkIn} → {claim.privateHost.checkOut}
+                </dd>
+              </dl>
+            </section>
+          ) : null}
           {claim.transport.length > 0 ? (
             <ClaimTable
               title="Ground transportation"

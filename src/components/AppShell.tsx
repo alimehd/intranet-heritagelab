@@ -10,6 +10,7 @@ import {
   FileText,
   LogOut,
   BookOpen,
+  BookUser,
   Users,
 } from "lucide-react";
 
@@ -18,6 +19,7 @@ const nav = [
   { href: "/travel-claims", label: "Travel Claims", icon: Plane },
   { href: "/travel-claims/new", label: "New Claim", icon: FileText },
   { href: "/policies", label: "Resources", icon: BookOpen },
+  { href: "/directory", label: "Directory", icon: BookUser, soon: true },
 ];
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
@@ -45,7 +47,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-hl-ink transition hover:bg-hl-cream"
             >
               <item.icon className="h-4 w-4 text-hl-green-600" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.soon ? (
+                <span className="rounded bg-hl-cream px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-hl-muted">
+                  Soon
+                </span>
+              ) : null}
             </Link>
           ))}
           {boardMember ? (
