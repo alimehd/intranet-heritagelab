@@ -40,7 +40,7 @@ export async function submitLeaveRequest(
 ): Promise<LeaveSubmitState> {
   const session = await auth();
   if (!session?.user?.id || !session.user.email) {
-    return { ok: false, error: "You must be signed in to book leave." };
+    return { ok: false, error: "You must be signed in to book time off." };
   }
 
   const employee = findLeaveEmployee(session.user.email);
@@ -48,7 +48,7 @@ export async function submitLeaveRequest(
     return {
       ok: false,
       error:
-        "Your account does not have a leave entitlement configured. Contact ali.mehdi@heritagelab.ca.",
+        "Your account does not have a vacation or sick day entitlement configured. Contact ali.mehdi@heritagelab.ca.",
     };
   }
 
@@ -150,7 +150,7 @@ export async function submitLeaveRequest(
       .where(eq(leaveRequests.id, inserted.id));
     return {
       ok: false,
-      error: `Your leave was saved, but the notification email failed: ${msg}`,
+      error: `Your time off was saved, but the notification email failed: ${msg}`,
       requestId: inserted.id,
     };
   }
@@ -169,18 +169,18 @@ export async function decideLeaveRequest(
   const session = await auth();
   const actor = session?.user?.email;
   if (!session?.user?.id || !actor) {
-    return { ok: false, error: "You must be signed in to review leave." };
+    return { ok: false, error: "You must be signed in to review requests." };
   }
   if (!canApproveLeave(actor)) {
     return {
       ok: false,
-      error: "You do not have permission to approve or decline leave.",
+      error: "You do not have permission to approve or decline requests.",
     };
   }
 
   const requestId = String(formData.get("requestId") ?? "");
   const decision = String(formData.get("decision") ?? "");
-  if (!requestId) return { ok: false, error: "Missing leave reference." };
+  if (!requestId) return { ok: false, error: "Missing request reference." };
   if (decision !== "approved" && decision !== "declined") {
     return { ok: false, error: "Decision must be approve or decline." };
   }
@@ -195,7 +195,7 @@ export async function decideLeaveRequest(
     .where(eq(leaveRequests.id, requestId))
     .limit(1);
 
-  if (!row) return { ok: false, error: "Leave request not found." };
+  if (!row) return { ok: false, error: "Request not found." };
   if (row.status !== "pending") {
     return {
       ok: false,
@@ -277,11 +277,11 @@ export async function cancelLeaveRequest(
   const session = await auth();
   const actor = session?.user?.email;
   if (!session?.user?.id || !actor) {
-    return { ok: false, error: "You must be signed in to cancel leave." };
+    return { ok: false, error: "You must be signed in to cancel time off." };
   }
 
   const requestId = String(formData.get("requestId") ?? "");
-  if (!requestId) return { ok: false, error: "Missing leave reference." };
+  if (!requestId) return { ok: false, error: "Missing request reference." };
 
   const reason = String(formData.get("reason") ?? "")
     .trim()
@@ -293,18 +293,18 @@ export async function cancelLeaveRequest(
     .where(eq(leaveRequests.id, requestId))
     .limit(1);
 
-  if (!row) return { ok: false, error: "Leave request not found." };
+  if (!row) return { ok: false, error: "Request not found." };
 
-  // Employees can withdraw their own leave; approvers can cancel anyone's.
+  // Employees can withdraw their own time off; approvers can cancel anyone's.
   const isOwn = row.employeeEmail === canonicalLeaveEmail(actor);
   if (!isOwn && !canApproveLeave(actor)) {
     return {
       ok: false,
-      error: "You do not have permission to cancel this leave.",
+      error: "You do not have permission to cancel this entry.",
     };
   }
   if (row.status === "cancelled") {
-    return { ok: false, error: "This leave is already cancelled." };
+    return { ok: false, error: "This entry is already cancelled." };
   }
   if (row.status === "declined") {
     return {

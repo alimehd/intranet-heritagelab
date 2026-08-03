@@ -34,7 +34,7 @@ export function CancelLeaveForm({
         setConfirming(false);
         router.refresh();
       } else {
-        setError(res.error ?? "Could not cancel this leave.");
+        setError(res.error ?? "Could not cancel this entry.");
       }
     });
   }
@@ -42,7 +42,7 @@ export function CancelLeaveForm({
   return (
     <section className="hl-card p-6">
       <h2 className="text-lg font-semibold tracking-tight text-hl-ink">
-        {isOwn ? "Cancel this leave" : "Cancel on the employee's behalf"}
+        {isOwn ? "Cancel this time off" : "Cancel on the employee's behalf"}
       </h2>
       <p className="mt-1 text-sm text-hl-muted">
         Cancelling returns {pluralDays(dayCount)} to the entitlement and emails
@@ -89,7 +89,7 @@ export function CancelLeaveForm({
           onClick={() => setConfirming(true)}
           className="mt-4 inline-flex items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50"
         >
-          <Ban className="h-4 w-4" /> Cancel leave
+          <Ban className="h-4 w-4" /> Cancel time off
         </button>
       )}
 

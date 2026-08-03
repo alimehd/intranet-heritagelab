@@ -6,7 +6,7 @@ import { getBalancesFor } from "@/lib/leave/queries";
 import { LEAVE_POLICY } from "@/lib/leave/schema";
 import { LeaveRequestForm } from "./LeaveRequestForm";
 
-export const metadata = { title: "Book Leave — Heritage Lab" };
+export const metadata = { title: "Book Time Off — Heritage Lab" };
 
 export default async function NewLeavePage() {
   const session = await auth();
@@ -17,10 +17,10 @@ export default async function NewLeavePage() {
     <div className="space-y-6">
       <div>
         <Link href="/leave" className="hl-btn-ghost -ml-3 mb-2">
-          <ArrowLeft className="h-4 w-4" /> Back to leave
+          <ArrowLeft className="h-4 w-4" /> Back to vacation &amp; sick days
         </Link>
         <h1 className="text-3xl font-semibold tracking-tight text-hl-ink">
-          Book leave
+          Book time off
         </h1>
         <p className="mt-1 text-sm text-hl-muted">
           {LEAVE_POLICY.vacationDaysPerYear} vacation days and{" "}
@@ -36,11 +36,11 @@ export default async function NewLeavePage() {
       ) : (
         <div className="hl-card p-6">
           <h2 className="text-lg font-semibold tracking-tight text-hl-ink">
-            No leave entitlement on this account
+            No entitlement on this account
           </h2>
           <p className="mt-1 text-sm text-hl-muted">
-            Leave tracking is enabled for specific staff accounts. If you should
-            have an entitlement, contact{" "}
+            Vacation and sick day tracking is enabled for specific staff
+            accounts. If you should have an entitlement, contact{" "}
             <a
               className="font-medium text-hl-green-700 hover:underline"
               href="mailto:ali.mehdi@heritagelab.ca"

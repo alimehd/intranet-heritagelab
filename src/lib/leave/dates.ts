@@ -55,6 +55,26 @@ export function yearOf(iso: string): number {
   return parseISO(iso).getUTCFullYear();
 }
 
+export const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+/** `month` is 1-based. Day 0 of the next month is the last day of this one. */
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 export function eachDay(startISO: string, endISO: string): string[] {
   const out: string[] = [];
   if (!isValidISO(startISO) || !isValidISO(endISO) || endISO < startISO) {

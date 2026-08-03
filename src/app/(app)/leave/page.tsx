@@ -17,13 +17,9 @@ import {
   type LeaveType,
 } from "@/lib/leave/schema";
 import type { LeaveRequest } from "@/lib/db/schema";
+import { LeaveTabs, LeaveYearSwitcher, resolveYear } from "./LeaveNav";
 
-export const metadata = { title: "Leave — Heritage Lab" };
-
-/** Years offered in the switcher: last year through next year. */
-function selectableYears(current: number): number[] {
-  return [current - 1, current, current + 1];
-}
+export const metadata = { title: "Vacation & Sick Days — Heritage Lab" };
 
 export default async function LeavePage({
   searchParams,
@@ -34,11 +30,7 @@ export default async function LeavePage({
   const { year: yearParam } = await searchParams;
 
   const currentYear = new Date().getUTCFullYear();
-  const parsedYear = Number(yearParam);
-  const leaveYear =
-    Number.isInteger(parsedYear) && parsedYear >= 2000 && parsedYear <= 2100
-      ? parsedYear
-      : currentYear;
+  const leaveYear = resolveYear(yearParam, currentYear);
 
   const employee = findLeaveEmployee(session?.user?.email);
   const isApprover = canApproveLeave(session?.user?.email);
@@ -66,34 +58,25 @@ export default async function LeavePage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-hl-ink">
-            Leave
+            Vacation &amp; Sick Days
           </h1>
           <p className="mt-1 text-sm text-hl-muted">
-            Vacation and sick days for {leaveYear}.
+            Your {leaveYear} entitlements, bookings, and paid holidays.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex overflow-hidden rounded-md border border-hl-border bg-white">
-            {selectableYears(currentYear).map((y) => (
-              <Link
-                key={y}
-                href={`/leave?year=${y}`}
-                aria-current={y === leaveYear ? "page" : undefined}
-                className={`px-3 py-2 text-sm font-medium transition ${
-                  y === leaveYear
-                    ? "bg-hl-green-600 text-white"
-                    : "text-hl-muted hover:bg-hl-cream hover:text-hl-ink"
-                }`}
-              >
-                {y}
-              </Link>
-            ))}
-          </div>
+          <LeaveYearSwitcher
+            basePath="/leave"
+            year={leaveYear}
+            currentYear={currentYear}
+          />
           <Link href="/leave/new" className="hl-btn-primary">
-            <CalendarPlus className="h-4 w-4" /> Book leave
+            <CalendarPlus className="h-4 w-4" /> Book time off
           </Link>
         </div>
       </div>
+
+      <LeaveTabs active="/leave" year={leaveYear} />
 
       {balances ? (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -104,7 +87,7 @@ export default async function LeavePage({
       ) : (
         <div className="hl-card p-6">
           <h2 className="text-lg font-semibold tracking-tight text-hl-ink">
-            No leave entitlement on this account
+            No entitlement on this account
           </h2>
           <p className="mt-1 text-sm text-hl-muted">
             You can still see the paid holiday calendar below.
@@ -130,7 +113,7 @@ export default async function LeavePage({
       {employee ? (
         <section className="hl-card p-6">
           <h2 className="mb-4 text-xl font-semibold tracking-tight text-hl-ink">
-            My leave in {leaveYear}
+            My time off in {leaveYear}
           </h2>
           {myRequests.length === 0 ? (
             <div className="rounded-md border border-dashed border-hl-border bg-hl-cream/60 px-4 py-10 text-center text-sm text-hl-muted">
@@ -139,7 +122,7 @@ export default async function LeavePage({
                 href="/leave/new"
                 className="font-medium text-hl-green-700 underline-offset-2 hover:underline"
               >
-                Book leave →
+                Book time off →
               </Link>
             </div>
           ) : (
@@ -151,7 +134,7 @@ export default async function LeavePage({
       {isApprover && othersLeave.length > 0 ? (
         <section className="hl-card p-6">
           <h2 className="mb-4 text-xl font-semibold tracking-tight text-hl-ink">
-            Team leave in {leaveYear}
+            Team time off in {leaveYear}
           </h2>
           <RequestTable requests={othersLeave} showEmployee />
         </section>

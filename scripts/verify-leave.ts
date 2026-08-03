@@ -8,6 +8,11 @@
  */
 import { getHolidayPeriods, getHolidays } from "../src/lib/leave/holidays";
 import { countLeaveDays, computeBalances } from "../src/lib/leave/schema";
+import {
+  buildCalendarDays,
+  buildMonthGrids,
+  countCalendarDays,
+} from "../src/lib/leave/calendar";
 
 let failures = 0;
 
@@ -129,6 +134,78 @@ check("Vacation pending", balances.vacation.pending, 3);
 check("Vacation remaining of 20", balances.vacation.remaining, 12);
 check("Sick used", balances.sick.used, 1.5);
 check("Sick remaining of 12", balances.sick.remaining, 10.5);
+
+console.log("\n=== Calendar grids ===");
+const grids = buildMonthGrids(2026);
+check("12 months generated", grids.length, 12);
+check("January 2026 starts on Thursday", grids[0].weeks[0].slice(0, 5), [
+  null,
+  null,
+  null,
+  null,
+  "2026-01-01",
+]);
+check(
+  "Every month is padded to whole weeks",
+  grids.every((m) => m.weeks.every((w) => w.length === 7)),
+  true,
+);
+check(
+  "February 2026 has 28 days",
+  grids[1].weeks.flat().filter(Boolean).length,
+  28,
+);
+
+console.log("\n=== Calendar day marking ===");
+const calendar = buildCalendarDays({
+  year: 2026,
+  requests: [
+    {
+      id: "r1",
+      employeeName: "Shaun Annanack",
+      leaveType: "vacation",
+      // Spans a weekend and Canada Day (Wed Jul 1).
+      startDate: "2026-06-29",
+      endDate: "2026-07-03",
+      status: "approved",
+      halfDay: false,
+    },
+    {
+      id: "r2",
+      employeeName: "Shaun Annanack",
+      leaveType: "sick",
+      startDate: "2026-03-02",
+      endDate: "2026-03-02",
+      status: "recorded",
+      halfDay: false,
+    },
+    {
+      id: "r3",
+      employeeName: "Shaun Annanack",
+      leaveType: "vacation",
+      startDate: "2026-05-11",
+      endDate: "2026-05-12",
+      status: "cancelled",
+      halfDay: false,
+    },
+  ],
+});
+
+check("Vacation day marked", calendar.get("2026-06-29")?.kind, "vacation");
+check("Sick day marked", calendar.get("2026-03-02")?.kind, "sick");
+check(
+  "Holiday overrides vacation booked across it",
+  calendar.get("2026-07-01")?.kind,
+  "holiday",
+);
+check("Weekend inside a range stays unmarked", calendar.has("2026-07-04"), false);
+check("Cancelled request is not shown", calendar.has("2026-05-11"), false);
+
+const calendarTotals = countCalendarDays(calendar);
+// Jun 29, 30 and Jul 2, 3 are chargeable; Jul 1 is the holiday.
+check("Vacation days on calendar", calendarTotals.vacation, 4);
+check("Sick days on calendar", calendarTotals.sick, 1);
+check("Paid holidays on calendar", calendarTotals.holidays, 20);
 
 console.log(
   failures === 0

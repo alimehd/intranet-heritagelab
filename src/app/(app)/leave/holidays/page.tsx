@@ -1,13 +1,8 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { formatLong, formatRange, weekday, WEEKDAY_NAMES } from "@/lib/leave/dates";
 import { getHolidayPeriods } from "@/lib/leave/holidays";
+import { LeaveTabs, LeaveYearSwitcher, resolveYear } from "../LeaveNav";
 
 export const metadata = { title: "Paid Holidays — Heritage Lab" };
-
-function selectableYears(current: number): number[] {
-  return [current - 1, current, current + 1];
-}
 
 export default async function HolidaysPage({
   searchParams,
@@ -16,11 +11,7 @@ export default async function HolidaysPage({
 }) {
   const { year: yearParam } = await searchParams;
   const currentYear = new Date().getUTCFullYear();
-  const parsed = Number(yearParam);
-  const year =
-    Number.isInteger(parsed) && parsed >= 2000 && parsed <= 2100
-      ? parsed
-      : currentYear;
+  const year = resolveYear(yearParam, currentYear);
 
   const periods = getHolidayPeriods(year);
   const totalDays = periods.reduce((sum, p) => sum + p.days, 0);
@@ -28,38 +19,24 @@ export default async function HolidaysPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href={`/leave?year=${year}`} className="hl-btn-ghost -ml-3 mb-2">
-          <ArrowLeft className="h-4 w-4" /> Back to leave
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-hl-ink">
-              Paid holidays {year}
-            </h1>
-            <p className="mt-1 text-sm text-hl-muted">
-              {totalDays} paid days off across {periods.length} holiday periods.
-              These are never charged against vacation or sick leave.
-            </p>
-          </div>
-          <div className="flex overflow-hidden rounded-md border border-hl-border bg-white">
-            {selectableYears(currentYear).map((y) => (
-              <Link
-                key={y}
-                href={`/leave/holidays?year=${y}`}
-                aria-current={y === year ? "page" : undefined}
-                className={`px-3 py-2 text-sm font-medium transition ${
-                  y === year
-                    ? "bg-hl-green-600 text-white"
-                    : "text-hl-muted hover:bg-hl-cream hover:text-hl-ink"
-                }`}
-              >
-                {y}
-              </Link>
-            ))}
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-hl-ink">
+            Paid holidays {year}
+          </h1>
+          <p className="mt-1 text-sm text-hl-muted">
+            {totalDays} paid days off across {periods.length} holiday periods.
+            These are never charged against vacation or sick days.
+          </p>
         </div>
+        <LeaveYearSwitcher
+          basePath="/leave/holidays"
+          year={year}
+          currentYear={currentYear}
+        />
       </div>
+
+      <LeaveTabs active="/leave/holidays" year={year} />
 
       <div className="hl-card p-0">
         <div className="overflow-x-auto">
@@ -122,7 +99,7 @@ export default async function HolidaysPage({
             <em>observed</em>.
           </li>
           <li>
-            Booking leave across a holiday is safe — the holiday is skipped
+            Booking time off across a holiday is safe — the holiday is skipped
             automatically and only true working days are charged.
           </li>
         </ul>

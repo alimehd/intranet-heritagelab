@@ -80,8 +80,8 @@ export default async function DashboardPage() {
         <ActionCard
           href="/leave"
           icon={<CalendarDays className="h-5 w-5" />}
-          title="Leave"
-          description="Book vacation, report sick days, and see paid holidays."
+          title="Vacation & sick days"
+          description="Book time off, report sick days, and see the paid holiday calendar."
         />
         <ActionCard
           href="/policies"
@@ -114,7 +114,7 @@ export default async function DashboardPage() {
           <Inbox className="h-5 w-5 shrink-0 text-amber-700" />
           <span className="text-sm text-hl-ink">
             <strong>
-              {pendingLeave.length} leave request
+              {pendingLeave.length} vacation request
               {pendingLeave.length === 1 ? "" : "s"}
             </strong>{" "}
             waiting for your approval
@@ -129,7 +129,7 @@ export default async function DashboardPage() {
         <section className="hl-card p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="tracking-tight text-xl font-semibold text-hl-ink">
-              My {leaveYear} leave
+              My {leaveYear} vacation &amp; sick days
             </h2>
             <Link href="/leave" className="hl-btn-ghost">
               View all

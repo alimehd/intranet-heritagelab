@@ -74,7 +74,7 @@ export default async function LeaveDetailPage({
           href={`/leave?year=${row.leaveYear}`}
           className="hl-btn-ghost -ml-3 mb-2"
         >
-          <ArrowLeft className="h-4 w-4" /> All leave
+          <ArrowLeft className="h-4 w-4" /> All vacation &amp; sick days
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
