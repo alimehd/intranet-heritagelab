@@ -6,6 +6,8 @@ import {
   numeric,
   jsonb,
   integer,
+  boolean,
+  index,
   primaryKey,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -91,3 +93,49 @@ export const travelClaims = pgTable("travel_claim", {
 
 export type TravelClaim = typeof travelClaims.$inferSelect;
 export type NewTravelClaim = typeof travelClaims.$inferInsert;
+
+// ---------- Leave (vacation / sick days) ----------
+export const leaveRequests = pgTable(
+  "leave_request",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * Canonical employee address: aliases are resolved before insert so one
+     * person always draws down a single balance.
+     */
+    employeeEmail: text("employee_email").notNull(),
+    employeeName: text("employee_name").notNull(),
+    leaveType: text("leave_type").notNull(), // vacation | sick
+    startDate: text("start_date").notNull(), // ISO yyyy-mm-dd
+    endDate: text("end_date").notNull(),
+    halfDay: boolean("half_day").notNull().default(false),
+    /** Chargeable working days, excluding weekends and paid holidays. */
+    dayCount: numeric("day_count", { precision: 4, scale: 1 }).notNull(),
+    /** Calendar year the entitlement is drawn from. */
+    leaveYear: integer("leave_year").notNull(),
+    reason: text("reason"),
+    // pending | approved | declined | recorded | cancelled
+    status: text("status").notNull().default("pending"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: text("decided_by"),
+    decisionNote: text("decision_note"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
+    cancelReason: text("cancel_reason"),
+    emailMessageId: text("email_message_id"),
+    emailError: text("email_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    // Balance lookups are always scoped to one employee and year.
+    index("leave_request_employee_year_idx").on(t.employeeEmail, t.leaveYear),
+  ],
+);
+
+export type LeaveRequest = typeof leaveRequests.$inferSelect;
+export type NewLeaveRequest = typeof leaveRequests.$inferInsert;

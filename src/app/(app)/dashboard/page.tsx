@@ -4,10 +4,22 @@ import { db } from "@/lib/db";
 import { travelClaims } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { formatMoney } from "@/lib/claims/schema";
-import { Plane, FileText, BookOpen, BookUser, Users } from "lucide-react";
+import {
+  Plane,
+  FileText,
+  BookOpen,
+  BookUser,
+  Users,
+  CalendarDays,
+  Inbox,
+} from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isBoardMember } from "@/lib/roles";
 import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
+import { formatDays } from "@/lib/leave/dates";
+import { canApproveLeave, findLeaveEmployee } from "@/lib/leave/people";
+import { getBalancesFor, getTeamRequestsFor } from "@/lib/leave/queries";
+import { LEAVE_TYPES, LEAVE_TYPE_LABELS } from "@/lib/leave/schema";
 
 export const metadata = { title: "Dashboard — Heritage Lab" };
 
@@ -27,6 +39,19 @@ export default async function DashboardPage() {
     .reduce((s, c) => s + Number(c.totalAmount), 0);
 
   const boardMember = isBoardMember(session?.user?.email);
+
+  const leaveEmployee = findLeaveEmployee(session?.user?.email);
+  const leaveYear = new Date().getUTCFullYear();
+  const [leaveBalances, pendingLeave] = await Promise.all([
+    leaveEmployee
+      ? getBalancesFor(leaveEmployee.email, leaveYear)
+      : Promise.resolve(null),
+    canApproveLeave(session?.user?.email)
+      ? getTeamRequestsFor(leaveYear).then((rows) =>
+          rows.filter((r) => r.status === "pending"),
+        )
+      : Promise.resolve([]),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -53,6 +78,12 @@ export default async function DashboardPage() {
           description="Review or cancel claims you've submitted."
         />
         <ActionCard
+          href="/leave"
+          icon={<CalendarDays className="h-5 w-5" />}
+          title="Leave"
+          description="Book vacation, report sick days, and see paid holidays."
+        />
+        <ActionCard
           href="/policies"
           icon={<BookOpen className="h-5 w-5" />}
           title="Resources"
@@ -74,6 +105,70 @@ export default async function DashboardPage() {
           />
         ) : null}
       </div>
+
+      {pendingLeave.length > 0 ? (
+        <Link
+          href="/leave"
+          className="hl-card flex items-center gap-3 border-amber-200 bg-amber-50/60 p-4 transition hover:border-amber-300"
+        >
+          <Inbox className="h-5 w-5 shrink-0 text-amber-700" />
+          <span className="text-sm text-hl-ink">
+            <strong>
+              {pendingLeave.length} leave request
+              {pendingLeave.length === 1 ? "" : "s"}
+            </strong>{" "}
+            waiting for your approval
+          </span>
+          <span className="ml-auto text-sm font-medium text-hl-green-700">
+            Review →
+          </span>
+        </Link>
+      ) : null}
+
+      {leaveBalances ? (
+        <section className="hl-card p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="tracking-tight text-xl font-semibold text-hl-ink">
+              My {leaveYear} leave
+            </h2>
+            <Link href="/leave" className="hl-btn-ghost">
+              View all
+            </Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {LEAVE_TYPES.map((type) => {
+              const b = leaveBalances[type];
+              return (
+                <div
+                  key={type}
+                  className="rounded-md border border-hl-border bg-hl-cream/40 p-4"
+                >
+                  <div className="text-sm text-hl-muted">
+                    {LEAVE_TYPE_LABELS[type]}
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-1.5">
+                    <span
+                      className={`text-2xl font-semibold tabular-nums ${
+                        b.remaining < 0 ? "text-red-700" : "text-hl-ink"
+                      }`}
+                    >
+                      {formatDays(b.remaining)}
+                    </span>
+                    <span className="text-sm text-hl-muted">
+                      of {formatDays(b.entitled)} days left
+                    </span>
+                  </div>
+                  {b.pending > 0 ? (
+                    <div className="mt-1 text-xs text-amber-700">
+                      {formatDays(b.pending)} awaiting approval
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="hl-card p-6">
         <div className="mb-4 flex items-center justify-between">

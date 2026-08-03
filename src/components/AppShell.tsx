@@ -12,12 +12,14 @@ import {
   BookOpen,
   BookUser,
   Users,
+  CalendarDays,
 } from "lucide-react";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/travel-claims", label: "Travel Claims", icon: Plane },
   { href: "/travel-claims/new", label: "New Claim", icon: FileText },
+  { href: "/leave", label: "Leave", icon: CalendarDays },
   { href: "/policies", label: "Resources", icon: BookOpen },
   { href: "/directory", label: "Directory", icon: BookUser, soon: true },
 ];
