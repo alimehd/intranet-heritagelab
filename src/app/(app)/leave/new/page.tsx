@@ -32,6 +32,8 @@ export default async function NewLeavePage() {
       {employee ? (
         <LeaveRequestForm
           balances={await getBalancesFor(employee.email, leaveYear)}
+          minDate={`${leaveYear - 1}-01-01`}
+          maxDate={`${leaveYear + 1}-12-31`}
         />
       ) : (
         <div className="hl-card p-6">

@@ -2,6 +2,7 @@ import {
   addDays,
   easterSunday,
   eachDay,
+  isSupportedYear,
   isWeekend,
   lastWeekdayBefore,
   makeISO,
@@ -107,6 +108,11 @@ function christmasClosure(year: number): Holiday[] {
 
 /** Every paid holiday falling in the given calendar year, sorted by date. */
 export function getHolidays(year: number): Holiday[] {
+  // The rules do arithmetic on constructed dates, which only works for years
+  // the Date constructor accepts. Callers can pass a year straight from user
+  // input, so refuse rather than build invalid dates.
+  if (!isSupportedYear(year)) return [];
+
   const fromRules = HOLIDAY_RULES.map(({ name, date, shiftsOffWeekend }) => {
     const statutory = date(year);
     if (!shiftsOffWeekend || !isWeekend(statutory)) {

@@ -16,8 +16,13 @@ import { submitLeaveRequest, type LeaveSubmitState } from "../actions";
 
 export function LeaveRequestForm({
   balances,
+  minDate,
+  maxDate,
 }: {
   balances: Record<LeaveType, LeaveBalance>;
+  /** Bounds the native date picker to the years the app tracks. */
+  minDate: string;
+  maxDate: string;
 }) {
   const [leaveType, setLeaveType] = useState<LeaveType>("vacation");
   const [startDate, setStartDate] = useState("");
@@ -126,6 +131,8 @@ export function LeaveRequestForm({
               id="startDate"
               type="date"
               required
+              min={minDate}
+              max={maxDate}
               className="hl-input"
               value={startDate}
               onChange={(e) => {
@@ -150,7 +157,8 @@ export function LeaveRequestForm({
               id="endDate"
               type="date"
               required
-              min={startDate || undefined}
+              min={startDate || minDate}
+              max={maxDate}
               className="hl-input"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}

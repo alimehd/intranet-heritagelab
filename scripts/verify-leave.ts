@@ -7,6 +7,7 @@
  * skips weekends and paid holidays.
  */
 import { getHolidayPeriods, getHolidays } from "../src/lib/leave/holidays";
+import { isValidISO, makeISO } from "../src/lib/leave/dates";
 import { countLeaveDays, computeBalances } from "../src/lib/leave/schema";
 import {
   buildCalendarDays,
@@ -134,6 +135,33 @@ check("Vacation pending", balances.vacation.pending, 3);
 check("Vacation remaining of 20", balances.vacation.remaining, 12);
 check("Sick used", balances.sick.used, 1.5);
 check("Sick remaining of 12", balances.sick.remaining, 10.5);
+
+console.log("\n=== Malformed input (regression) ===");
+// A date picker accepts a typed year like 7, which produced "7-04-07" from
+// makeISO, an Invalid Date, and a RangeError out of toISOString mid-render.
+check("makeISO pads the year", makeISO(7, 4, 7), "0007-04-07");
+check("Out-of-range year rejected", isValidISO("0007-07-31"), false);
+check("Two-digit year string rejected", isValidISO("26-07-31"), false);
+check("Impossible date rejected", isValidISO("2026-02-30"), false);
+check("Valid date still accepted", isValidISO("2026-07-31"), true);
+check("Holidays for an absurd year are empty", getHolidays(7).length, 0);
+
+for (const [label, input] of [
+  ["year 7", { startDate: "0007-07-31", endDate: "0007-07-31" }],
+  ["empty dates", { startDate: "", endDate: "" }],
+  ["partial date", { startDate: "2026-07", endDate: "2026-07" }],
+  ["reversed range", { startDate: "2026-07-31", endDate: "2026-07-01" }],
+  ["year 0", { startDate: "0000-01-01", endDate: "0000-01-01" }],
+] as const) {
+  let threw: string | null = null;
+  let days = -1;
+  try {
+    days = countLeaveDays(input).chargeableDays;
+  } catch (e) {
+    threw = (e as Error).message;
+  }
+  check(`countLeaveDays survives ${label}`, threw ?? days, 0);
+}
 
 console.log("\n=== Calendar grids ===");
 const grids = buildMonthGrids(2026);

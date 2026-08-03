@@ -14,25 +14,49 @@ export const WEEKDAY_NAMES = [
   "Saturday",
 ] as const;
 
+/**
+ * Years this app will compute. A date picker lets someone type a year like 7,
+ * which is never a real booking, and unbounded years produce dates the Date
+ * constructor rejects.
+ */
+export const MIN_YEAR = 1970;
+export const MAX_YEAR = 2200;
+
+export function isSupportedYear(year: number): boolean {
+  return Number.isInteger(year) && year >= MIN_YEAR && year <= MAX_YEAR;
+}
+
 export function parseISO(iso: string): Date {
   return new Date(`${iso}T00:00:00Z`);
 }
 
 export function toISO(d: Date): string {
+  // Surfaces the origin of a bad date instead of a bare RangeError from deep
+  // inside toISOString, where the stack gives nothing to work with.
+  if (Number.isNaN(d.getTime())) {
+    throw new RangeError("toISO received an invalid Date");
+  }
   return d.toISOString().slice(0, 10);
 }
 
-/** Rejects both malformed strings and impossible dates like 2026-02-30. */
+/**
+ * Rejects malformed strings, impossible dates like 2026-02-30, and years
+ * outside the supported range.
+ */
 export function isValidISO(iso: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  if (!isSupportedYear(Number(iso.slice(0, 4)))) return false;
   const d = parseISO(iso);
   return !Number.isNaN(d.getTime()) && toISO(d) === iso;
 }
 
 export function makeISO(year: number, month: number, day: number): string {
+  // The year must be padded too: "7-04-07" is not a date the Date constructor
+  // accepts, and the resulting Invalid Date throws on the next conversion.
+  const yyyy = String(year).padStart(4, "0");
   const mm = String(month).padStart(2, "0");
   const dd = String(day).padStart(2, "0");
-  return `${year}-${mm}-${dd}`;
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 export function addDays(iso: string, n: number): string {

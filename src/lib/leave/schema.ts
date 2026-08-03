@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { eachDay, isValidISO, isWeekend, yearOf } from "./dates";
+import {
+  eachDay,
+  isValidISO,
+  isWeekend,
+  MAX_YEAR,
+  MIN_YEAR,
+  yearOf,
+} from "./dates";
 import { getHolidayMap, type Holiday } from "./holidays";
 
 /** Annual entitlements, per calendar year. */
@@ -128,7 +135,11 @@ export function countLeaveDays(args: {
 const isoDate = z
   .string()
   .trim()
-  .refine(isValidISO, "Date must be a valid YYYY-MM-DD date");
+  .min(1, "Pick a date")
+  .refine(
+    isValidISO,
+    `Enter a real date with a four-digit year between ${MIN_YEAR} and ${MAX_YEAR}`,
+  );
 
 export const leaveRequestSchema = z
   .object({
