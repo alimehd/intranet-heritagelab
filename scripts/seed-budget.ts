@@ -123,6 +123,7 @@ async function main() {
       contractValue: yearTotal.toFixed(2),
       monthlyExpected: monthly,
       allowedCategoryCodes: [],
+      categoryCaps: [],
       status: "active",
       notes: src.notes ?? null,
       sortOrder: i,

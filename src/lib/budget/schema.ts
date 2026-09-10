@@ -16,6 +16,15 @@ export const monthlyScheduleSchema = z
   )
   .length(12, "Provide exactly 12 monthly values.");
 
+/** Per-category cap entry. `cap: null` = allowed with no dollar limit. */
+export const categoryCapSchema = z.object({
+  code: z.string().regex(/^\d{3}$/, "Category codes look like 001, 002…"),
+  cap: z
+    .union([z.null(), z.coerce.number().finite().min(0).max(100_000_000)])
+    .nullable(),
+});
+export type CategoryCap = z.infer<typeof categoryCapSchema>;
+
 export const fundingSourceInputSchema = z.object({
   name: z
     .string()
@@ -29,10 +38,7 @@ export const fundingSourceInputSchema = z.object({
     .min(0, "Contract value must be zero or positive.")
     .max(100_000_000),
   monthlyExpected: monthlyScheduleSchema,
-  allowedCategoryCodes: z
-    .array(z.string().regex(/^\d{3}$/, "Category codes look like 001, 002…"))
-    .max(20)
-    .default([]),
+  categoryCaps: z.array(categoryCapSchema).max(20).default([]),
   status: z.enum(FUNDING_SOURCE_STATUSES).default("active"),
   notes: z.string().trim().max(2000).nullable().optional(),
 });
@@ -50,10 +56,17 @@ export function parseFundingSourceForm(fd: FormData) {
     if (raw == null || raw === "") return 0;
     return raw;
   });
-  const codesRaw = String(fd.get("allowedCategoryCodes") ?? "").trim();
-  const allowedCategoryCodes = codesRaw
-    ? codesRaw.split(",").map((c) => c.trim()).filter(Boolean)
-    : [];
+  // Caps come in as a JSON string: [{code:"001", cap:30000|null}, ...]
+  const capsRaw = String(fd.get("categoryCaps") ?? "").trim();
+  let categoryCaps: unknown = [];
+  if (capsRaw) {
+    try {
+      categoryCaps = JSON.parse(capsRaw);
+    } catch {
+      // let Zod produce the field error
+      categoryCaps = capsRaw;
+    }
+  }
   const notesRaw = String(fd.get("notes") ?? "").trim();
 
   return fundingSourceInputSchema.safeParse({
@@ -61,7 +74,7 @@ export function parseFundingSourceForm(fd: FormData) {
     kind: fd.get("kind"),
     contractValue: fd.get("contractValue") ?? 0,
     monthlyExpected: monthly,
-    allowedCategoryCodes,
+    categoryCaps,
     status: fd.get("status") || "active",
     notes: notesRaw || null,
   });
@@ -111,6 +124,57 @@ export const bankClassificationInputSchema = z
   });
 
 export type BankClassificationInput = z.infer<typeof bankClassificationInputSchema>;
+
+// -------------------- Bank transaction splits --------------------
+
+/**
+ * A single split allocation for a bank transaction. Each split gets its
+ * own budget line + optional funding source + optional description.
+ * The action validates that sum(amount) == parent.debit.
+ */
+export const bankTransactionSplitInputSchema = z.object({
+  budgetLineId: z.string().uuid("Pick a budget line."),
+  fundingSourceId: z.string().uuid().nullable().optional(),
+  amount: z.coerce
+    .number()
+    .finite()
+    .gt(0, "Split amount must be greater than zero.")
+    .max(10_000_000),
+  description: z.string().trim().max(500).nullable().optional(),
+});
+
+export const bankTransactionSplitsFormSchema = z.object({
+  txnId: z.string().uuid(),
+  splits: z.array(bankTransactionSplitInputSchema).max(50, "Too many splits."),
+});
+export type BankTransactionSplitInput = z.infer<
+  typeof bankTransactionSplitInputSchema
+>;
+
+// -------------------- Manual entry edit --------------------
+
+/**
+ * Editable fields for a manual-account bank transaction (the synthetic
+ * "Manual entries (pre-import)" account created during the Excel import).
+ * Only exposed on manual rows — real bank rows shouldn't be edited to
+ * preserve the audit trail.
+ */
+export const manualEntryEditSchema = z.object({
+  id: z.string().uuid(),
+  txnDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD."),
+  description: z.string().trim().min(1, "Description is required.").max(500),
+  amount: z.coerce
+    .number()
+    .finite()
+    .gt(0, "Amount must be greater than zero.")
+    .max(10_000_000),
+  budgetLineId: z.string().uuid().nullable().optional(),
+  fundingSourceId: z.string().uuid().nullable().optional(),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+export type ManualEntryEditInput = z.infer<typeof manualEntryEditSchema>;
 
 export const bankAccountInputSchema = z.object({
   name: z

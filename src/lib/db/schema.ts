@@ -265,11 +265,24 @@ export const fundingSources = pgTable(
       .array()
       .notNull(),
     /**
-     * Category codes ("001", "003", …) this grant is permitted to fund. Empty
-     * array means "unrestricted." Used to warn (not block) when an expense is
-     * tagged with a funding source whose restrictions don't cover the category.
+     * DEPRECATED — kept for read compatibility during the migration to
+     * `categoryCaps`. New code should read/write `categoryCaps` instead.
+     * A backfill script populates `categoryCaps` from this column.
      */
     allowedCategoryCodes: text("allowed_category_codes").array().notNull().default([]),
+    /**
+     * Per-category spend caps for this funding source. Empty array = the
+     * source is unrestricted (any category, no cap). One entry per allowed
+     * category:
+     *   [{ code: "001", cap: 30000 }, { code: "002", cap: null }]
+     * `cap: null` means "allowed, no dollar limit"; a positive number is the
+     * annual dollar ceiling. Enforced at classify-time as a warning (never
+     * a hard block — Ali retains final say).
+     */
+    categoryCaps: jsonb("category_caps")
+      .$type<Array<{ code: string; cap: number | null }>>()
+      .notNull()
+      .default([]),
     status: text("status").notNull().default("active"), // FUNDING_SOURCE_STATUSES
     notes: text("notes"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -404,6 +417,53 @@ export const bankTransactions = pgTable(
 
 export type BankTransaction = typeof bankTransactions.$inferSelect;
 export type NewBankTransaction = typeof bankTransactions.$inferInsert;
+
+/**
+ * Splits let a single bank debit be allocated across N budget lines. Used
+ * when Ali pays one $2,000 invoice that covers three grant projects at
+ * $500, $700, and $800 respectively.
+ *
+ * Invariants (enforced in the classify action, not the DB):
+ *   - If a bank_transaction has ANY splits, its own `budgetLineId` /
+ *     `fundingSourceId` are ignored and MUST be null.
+ *   - SUM(splits.amount) MUST equal the parent txn's debit.
+ *   - Splits only exist on bank txns classified as `direct_expense`.
+ *
+ * The unified ledger UNIONs split rows in place of their parent, so a
+ * txn with 3 splits appears as 3 rows in the Expenses tab.
+ */
+export const bankTransactionSplits = pgTable(
+  "bank_transaction_split",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bankTxnId: uuid("bank_txn_id")
+      .notNull()
+      .references(() => bankTransactions.id, { onDelete: "cascade" }),
+    budgetLineId: uuid("budget_line_id")
+      .notNull()
+      .references(() => budgetLines.id, { onDelete: "restrict" }),
+    fundingSourceId: uuid("funding_source_id").references(
+      () => fundingSources.id,
+      { onDelete: "set null" },
+    ),
+    /** Positive dollar amount; sum-of-splits equals the parent's debit. */
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    /** Optional per-line description; if null, the parent's description is used. */
+    description: text("description"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("bank_split_txn_idx").on(t.bankTxnId),
+    index("bank_split_budget_line_idx").on(t.budgetLineId),
+    index("bank_split_funding_source_idx").on(t.fundingSourceId),
+  ],
+);
+
+export type BankTransactionSplit = typeof bankTransactionSplits.$inferSelect;
+export type NewBankTransactionSplit = typeof bankTransactionSplits.$inferInsert;
 
 // ---------- Budget: Phase 4 — expense reports ----------
 //

@@ -34,7 +34,11 @@ export async function GET(
   const fundingSourceId = url.searchParams.get("funding") ?? undefined;
   const sourceRaw = url.searchParams.get("source");
   const sourceType =
-    sourceRaw === "bank" || sourceRaw === "er" || sourceRaw === "manual"
+    sourceRaw === "bank" ||
+    sourceRaw === "er" ||
+    sourceRaw === "manual" ||
+    sourceRaw === "unclassified" ||
+    sourceRaw === "split"
       ? sourceRaw
       : undefined;
   const search = url.searchParams.get("q") ?? undefined;

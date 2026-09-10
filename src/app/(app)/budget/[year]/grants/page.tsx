@@ -141,7 +141,11 @@ function FundingSourceCard({
   const contract = Number(source.contractValue ?? 0);
   const receivedPct = contract > 0 ? Math.min(100, (received / contract) * 100) : 0;
   const spentPct = received > 0 ? Math.min(100, (spent / received) * 100) : 0;
-  const restrictions = (source.allowedCategoryCodes ?? []).filter(Boolean);
+  // Prefer categoryCaps; fall back to legacy allowedCategoryCodes.
+  const restrictions =
+    (source.categoryCaps?.length ?? 0) > 0
+      ? source.categoryCaps.map((c) => c.code)
+      : (source.allowedCategoryCodes ?? []).filter(Boolean);
 
   return (
     <Link

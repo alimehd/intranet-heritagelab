@@ -353,6 +353,25 @@ Each phase is independently shippable. Approval gate between each.
 - Grant coverage with drill-down.
 - Reconciliation health tile.
 - ✅ **Unified expense ledger + CSV export** (Phase 5a — shipped).
+- ✅ **Split bank transactions** (Phase 5b — shipped). One bank debit can
+  be allocated to N budget lines each with its own amount, funding source,
+  and description. Sum-of-splits must equal the parent's debit; parent's
+  own budget-line/funding-source fields are nulled when splits govern.
+  The unified ledger renders one row per split.
+- ✅ **Editable & deletable manual entries** (Phase 5b — shipped). Rows
+  imported from Ali's Excel (in the synthetic "Manual entries" account)
+  expose full edit/delete on the bank detail page. Real TD rows stay
+  frozen — the audit trail can only be extended, not rewritten.
+- ✅ **Delete funding source** (Phase 5b — shipped). Two-step confirmation;
+  bank txns and splits unlink cleanly, ER lines keep the source name.
+- ✅ **Per-category $ caps on funding sources** (Phase 5b — shipped).
+  Replaces the plain `allowedCategoryCodes: text[]` with
+  `categoryCaps: jsonb` — `[{ code, cap: number|null }, …]`. Backfill
+  script (`npm run backfill:caps`) migrates existing rows; the legacy
+  text array is written in sync for a smooth deprecation.
+- ✅ **Unclassified debits show in the Expenses ledger, grayed** (Phase
+  5b — shipped). Everything on the bank statement is visible in one
+  place; pending rows link straight to the classify page.
   - `/budget/[year]/expenses` merges paid ER lines with `direct_expense` bank
     txns into one flat table (mirrors the "Expenses" sheet in `for-test.xlsx`).
   - Filters: month strip, category, budget line, funding source, source-type,

@@ -13,9 +13,12 @@ import {
 } from "@/lib/budget/queries";
 import { listUnpaidApprovedReports } from "@/lib/budget/er-queries";
 import { CLASSIFICATION_LABELS } from "@/lib/budget/classify";
+import { getBankSplits } from "@/lib/budget/bank-actions";
 import type { BankTxnClassification } from "@/lib/db/schema";
 import { parseYearParam } from "../../../BudgetNav";
 import { ClassifyForm } from "./ClassifyForm";
+import { SplitsForm } from "./SplitsForm";
+import { ManualEntryForm } from "./ManualEntryForm";
 
 export const metadata = { title: "Classify Transaction — Heritage Lab" };
 
@@ -37,7 +40,7 @@ export default async function ClassifyPage({
   const editable = canEditBudget(session?.user?.email);
 
   const fiscalYear = await getFiscalYear(year);
-  const [grid, accounts, fundingList, reversalCandidates, unpaidErs] =
+  const [grid, accounts, fundingList, reversalCandidates, unpaidErs, splits] =
     await Promise.all([
       fiscalYear ? getBudgetGrid(year) : Promise.resolve(null),
       getBankAccounts(),
@@ -52,9 +55,11 @@ export default async function ClassifyPage({
       // Restrict to approved-but-unpaid ERs — plus the ER already linked to
       // this txn (if any) so the current selection survives.
       listUnpaidApprovedReports(),
+      getBankSplits(txn.id),
     ]);
 
   const accountName = accounts.find((a) => a.id === txn.accountId)?.name ?? "—";
+  const isManual = accountName === "Manual entries (pre-import)";
 
   const budgetLineOptions =
     grid?.categories.flatMap((c) =>
@@ -134,25 +139,67 @@ export default async function ClassifyPage({
       </section>
 
       {editable ? (
-        <ClassifyForm
-          year={year}
-          txn={{
-            id: txn.id,
-            classification: txn.classification as BankTxnClassification,
-            budgetLineId: txn.budgetLineId,
-            fundingSourceId: txn.fundingSourceId,
-            reversalOfTxnId: txn.reversalOfTxnId,
-            expenseReportId: txn.expenseReportId,
-            note: txn.note ?? "",
-            hasDebit: !!txn.debit,
-            hasCredit: !!txn.credit,
-          }}
-          budgetLineOptions={budgetLineOptions}
-          fundingOptions={fundingOptions}
-          reversalOptions={reversalOptions}
-          erOptions={erOptions}
-          erNotShownCount={otherUnpaidErs}
-        />
+        <>
+          {isManual ? (
+            <ManualEntryForm
+              txnId={txn.id}
+              initial={{
+                txnDate: txn.txnDate,
+                description: txn.description,
+                amount: Number(txn.debit ?? 0),
+                budgetLineId: txn.budgetLineId,
+                fundingSourceId: txn.fundingSourceId,
+                note: txn.note ?? "",
+              }}
+              budgetLineOptions={budgetLineOptions}
+              fundingOptions={fundingOptions}
+            />
+          ) : (
+            <ClassifyForm
+              year={year}
+              txn={{
+                id: txn.id,
+                classification: txn.classification as BankTxnClassification,
+                budgetLineId: txn.budgetLineId,
+                fundingSourceId: txn.fundingSourceId,
+                reversalOfTxnId: txn.reversalOfTxnId,
+                expenseReportId: txn.expenseReportId,
+                note: txn.note ?? "",
+                hasDebit: !!txn.debit,
+                hasCredit: !!txn.credit,
+              }}
+              budgetLineOptions={budgetLineOptions}
+              fundingOptions={fundingOptions}
+              reversalOptions={reversalOptions}
+              erOptions={erOptions}
+              erNotShownCount={otherUnpaidErs}
+            />
+          )}
+
+          {/*
+            Splits only make sense on direct_expense debits and only on real
+            bank rows (manual entries are simple one-line ledger entries — if
+            Ali wants two, he creates two).
+          */}
+          {!isManual &&
+          txn.classification === "direct_expense" &&
+          txn.debit ? (
+            <SplitsForm
+              txnId={txn.id}
+              txnDebit={Number(txn.debit)}
+              parentDescription={txn.description}
+              budgetLineOptions={budgetLineOptions}
+              fundingOptions={fundingOptions}
+              existing={splits.map((s) => ({
+                id: s.id,
+                budgetLineId: s.budgetLineId,
+                fundingSourceId: s.fundingSourceId,
+                amount: s.amount,
+                description: s.description,
+              }))}
+            />
+          ) : null}
+        </>
       ) : (
         <div className="hl-card p-5 text-sm text-hl-muted">
           Read-only view — ask a budget admin to (re)classify this row.

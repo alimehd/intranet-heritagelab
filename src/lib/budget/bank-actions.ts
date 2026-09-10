@@ -8,6 +8,7 @@ import {
   bankAccounts,
   bankImports,
   bankTransactions,
+  bankTransactionSplits,
   budgetLines,
   expenseReports,
 } from "@/lib/db/schema";
@@ -16,7 +17,13 @@ import { autoClassify } from "@/lib/budget/classify";
 import {
   bankAccountInputSchema,
   bankClassificationInputSchema,
+  bankTransactionSplitsFormSchema,
+  manualEntryEditSchema,
+  type BankTransactionSplitInput,
 } from "@/lib/budget/schema";
+import { createHash } from "node:crypto";
+
+const MANUAL_ACCOUNT_NAME = "Manual entries (pre-import)";
 import { parseTdCsv, parsedPeriod } from "@/lib/budget/csv";
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5 MB — statement CSVs are tiny
@@ -396,3 +403,268 @@ function nullable(v: FormDataEntryValue | null): string | null {
   const s = String(v).trim();
   return s === "" ? null : s;
 }
+
+// -------------------- Bank transaction splits --------------------
+
+export type SplitState = {
+  ok: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string>;
+};
+
+/**
+ * Replace the splits for a bank transaction. The form serialises splits
+ * as a JSON array in `splits`. Passing an empty array clears splits and
+ * lets the parent's own budget_line / funding_source govern the row again.
+ *
+ * Guarantees:
+ *   - Sum(splits.amount) must equal the parent's debit within 1 cent.
+ *   - Parent's own budgetLineId / fundingSourceId are nulled when splits
+ *     are set (splits are the source of truth).
+ *   - Only allowed on `direct_expense` rows.
+ */
+export async function saveBankSplits(
+  _prev: SplitState | undefined,
+  formData: FormData,
+): Promise<SplitState> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email || !canEditBudget(email)) {
+    return { ok: false, error: "You don't have edit access to the budget." };
+  }
+
+  let splitsJson: unknown;
+  try {
+    splitsJson = JSON.parse(String(formData.get("splits") ?? "[]"));
+  } catch {
+    return { ok: false, error: "Malformed splits payload." };
+  }
+  const parsed = bankTransactionSplitsFormSchema.safeParse({
+    txnId: formData.get("txnId"),
+    splits: splitsJson,
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      fieldErrors[issue.path.join(".") || "form"] = issue.message;
+    }
+    return { ok: false, error: "Fix the highlighted fields.", fieldErrors };
+  }
+  const { txnId, splits } = parsed.data;
+
+  const [txn] = await db
+    .select()
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, txnId));
+  if (!txn) return { ok: false, error: "Transaction not found." };
+  if (splits.length > 0 && txn.classification !== "direct_expense") {
+    return {
+      ok: false,
+      error: "Splits only make sense on direct-expense rows. Classify first.",
+    };
+  }
+  if (splits.length > 0 && !txn.debit) {
+    return {
+      ok: false,
+      error: "Splits only apply to debit rows (money out).",
+    };
+  }
+
+  if (splits.length > 0) {
+    const total = splits.reduce((s, sp) => s + sp.amount, 0);
+    const debit = Number(txn.debit);
+    if (Math.abs(total - debit) > 0.01) {
+      return {
+        ok: false,
+        error: `Sum of splits ($${total.toFixed(2)}) doesn't equal the debit ($${debit.toFixed(2)}). Adjust so they match.`,
+      };
+    }
+  }
+
+  const year = Number(txn.txnDate.slice(0, 4));
+
+  await db.transaction(async (tx) => {
+    // Wipe existing splits and re-insert. Simpler than diffing; splits
+    // are cheap and this action is rare.
+    await tx
+      .delete(bankTransactionSplits)
+      .where(eq(bankTransactionSplits.bankTxnId, txnId));
+
+    if (splits.length > 0) {
+      await tx.insert(bankTransactionSplits).values(
+        splits.map((sp: BankTransactionSplitInput, i: number) => ({
+          bankTxnId: txnId,
+          budgetLineId: sp.budgetLineId,
+          fundingSourceId: sp.fundingSourceId ?? null,
+          amount: sp.amount.toFixed(2),
+          description: sp.description ?? null,
+          sortOrder: i,
+        })),
+      );
+      // When splits govern the row, clear the parent's own tags so we
+      // never double-count.
+      await tx
+        .update(bankTransactions)
+        .set({ budgetLineId: null, fundingSourceId: null })
+        .where(eq(bankTransactions.id, txnId));
+    }
+  });
+
+  revalidatePath(`/budget/${year}/bank`);
+  revalidatePath(`/budget/${year}/bank/${txnId}`);
+  revalidatePath(`/budget/${year}/expenses`);
+  revalidatePath(`/budget/${year}`);
+  return { ok: true };
+}
+
+/** Fetch the splits for a bank txn — used by the detail page to seed the form. */
+export async function getBankSplits(txnId: string) {
+  return db
+    .select({
+      id: bankTransactionSplits.id,
+      budgetLineId: bankTransactionSplits.budgetLineId,
+      fundingSourceId: bankTransactionSplits.fundingSourceId,
+      amount: bankTransactionSplits.amount,
+      description: bankTransactionSplits.description,
+      sortOrder: bankTransactionSplits.sortOrder,
+    })
+    .from(bankTransactionSplits)
+    .where(eq(bankTransactionSplits.bankTxnId, txnId))
+    .orderBy(bankTransactionSplits.sortOrder);
+}
+
+// -------------------- Manual entry edit / delete --------------------
+
+export type ManualEntryState = {
+  ok: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string>;
+};
+
+/**
+ * Recompute the dedupe hash the same way the CSV importer does. Not
+ * strictly required for manual rows (they use `manual|row|…`) but keeping
+ * a fresh unique hash prevents accidental collisions on edit.
+ */
+function manualHash(id: string, date: string, description: string, amount: string) {
+  return createHash("sha256")
+    .update(`manual-edit|${id}|${date}|${description}|${amount}`)
+    .digest("hex");
+}
+
+/**
+ * Update a manual-account bank txn. Refuses on any other account so the
+ * TD audit trail can't be silently rewritten.
+ */
+export async function updateManualEntry(
+  _prev: ManualEntryState | undefined,
+  formData: FormData,
+): Promise<ManualEntryState> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email || !canEditBudget(email)) {
+    return { ok: false, error: "You don't have edit access to the budget." };
+  }
+
+  const parsed = manualEntryEditSchema.safeParse({
+    id: formData.get("id"),
+    txnDate: formData.get("txnDate"),
+    description: formData.get("description"),
+    amount: formData.get("amount"),
+    budgetLineId: nullable(formData.get("budgetLineId")),
+    fundingSourceId: nullable(formData.get("fundingSourceId")),
+    note: nullable(formData.get("note")),
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      fieldErrors[issue.path.join(".") || "form"] = issue.message;
+    }
+    return { ok: false, error: "Fix the highlighted fields.", fieldErrors };
+  }
+  const input = parsed.data;
+
+  const [txn] = await db
+    .select()
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, input.id));
+  if (!txn) return { ok: false, error: "Entry not found." };
+
+  const [account] = await db
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, txn.accountId));
+  if (!account || account.name !== MANUAL_ACCOUNT_NAME) {
+    return {
+      ok: false,
+      error:
+        "This isn't a manual entry — real bank rows can't be edited (preserves the audit trail).",
+    };
+  }
+
+  const amountStr = input.amount.toFixed(2);
+  const year = Number(input.txnDate.slice(0, 4));
+
+  await db
+    .update(bankTransactions)
+    .set({
+      txnDate: input.txnDate,
+      description: input.description,
+      debit: amountStr,
+      budgetLineId: input.budgetLineId ?? null,
+      fundingSourceId: input.fundingSourceId ?? null,
+      note: input.note ?? null,
+      dedupeHash: manualHash(input.id, input.txnDate, input.description, amountStr),
+      classifiedBy: email,
+      classifiedAt: new Date(),
+    })
+    .where(eq(bankTransactions.id, input.id));
+
+  revalidatePath(`/budget/${year}/bank`);
+  revalidatePath(`/budget/${year}/bank/${input.id}`);
+  revalidatePath(`/budget/${year}/expenses`);
+  return { ok: true };
+}
+
+/**
+ * Delete a manual-account bank txn. Refuses on any other account. Cascades
+ * to any splits attached to it via the FK.
+ */
+export async function deleteManualEntry(
+  _prev: ManualEntryState | undefined,
+  formData: FormData,
+): Promise<ManualEntryState> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email || !canEditBudget(email)) {
+    return { ok: false, error: "You don't have edit access to the budget." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { ok: false, error: "Missing id." };
+
+  const [txn] = await db
+    .select()
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, id));
+  if (!txn) return { ok: false, error: "Entry not found." };
+
+  const [account] = await db
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, txn.accountId));
+  if (!account || account.name !== MANUAL_ACCOUNT_NAME) {
+    return {
+      ok: false,
+      error: "Only manual entries can be deleted from here.",
+    };
+  }
+
+  const year = Number(txn.txnDate.slice(0, 4));
+  await db.delete(bankTransactions).where(eq(bankTransactions.id, id));
+
+  revalidatePath(`/budget/${year}/bank`);
+  revalidatePath(`/budget/${year}/expenses`);
+  return { ok: true };
+}
+

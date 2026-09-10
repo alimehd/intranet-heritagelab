@@ -1,12 +1,15 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import {
+  bankTransactions,
+  bankTransactionSplits,
   budgetFiscalYears,
+  expenseReportLines,
   fundingSources,
   type FundingSourceKind,
   type FundingSourceStatus,
@@ -78,7 +81,10 @@ export async function upsertFundingSource(
         kind: input.kind as FundingSourceKind,
         contractValue: contractValueStr,
         monthlyExpected: monthlyStrings,
-        allowedCategoryCodes: input.allowedCategoryCodes,
+        // Write the modern column and keep the legacy text[] column in sync
+        // so nothing that still reads it breaks mid-migration.
+        categoryCaps: input.categoryCaps,
+        allowedCategoryCodes: input.categoryCaps.map((c) => c.code),
         status: input.status as FundingSourceStatus,
         notes: input.notes ?? null,
       })
@@ -107,7 +113,8 @@ export async function upsertFundingSource(
         kind: input.kind as FundingSourceKind,
         contractValue: contractValueStr,
         monthlyExpected: monthlyStrings,
-        allowedCategoryCodes: input.allowedCategoryCodes,
+        categoryCaps: input.categoryCaps,
+        allowedCategoryCodes: input.categoryCaps.map((c) => c.code),
         status: input.status as FundingSourceStatus,
         notes: input.notes ?? null,
       })
@@ -118,6 +125,65 @@ export async function upsertFundingSource(
     revalidatePath(`/budget/${fy.year}`);
     redirect(`/budget/${fy.year}/grants/${inserted.id}?created=1`);
   }
+}
+
+/**
+ * Delete a funding source. Refuses if any expense-report line still uses
+ * it (that would be a hard reference — the ER expects the funding source
+ * to exist). Bank transactions and splits use `on delete set null`, so
+ * they're silently unlinked and their counts are returned to the caller
+ * so the UI can explain what happened.
+ */
+export async function deleteFundingSource(
+  _prev: ActionState | undefined,
+  formData: FormData,
+): Promise<ActionState & { unlinkedBankCount?: number; unlinkedSplitCount?: number }> {
+  const guard = await requireAdmin();
+  if ("ok" in guard) return guard;
+
+  const id = String(formData.get("id") ?? "").trim();
+  const year = Number(formData.get("year") ?? "");
+  if (!id) return { ok: false, error: "Missing funding source id." };
+
+  const [existing] = await db
+    .select()
+    .from(fundingSources)
+    .where(eq(fundingSources.id, id));
+  if (!existing) return { ok: false, error: "Funding source not found." };
+
+  // Hard block: ER lines reference funding sources with `on delete set null`
+  // too, so technically we could just delete. But losing the source on a
+  // historical ER line silently is confusing — surface it as a warning.
+  const [erUse] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(expenseReportLines)
+    .where(eq(expenseReportLines.fundingSourceId, id));
+  const [bankUse] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(bankTransactions)
+    .where(eq(bankTransactions.fundingSourceId, id));
+  const [splitUse] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(bankTransactionSplits)
+    .where(eq(bankTransactionSplits.fundingSourceId, id));
+
+  // Confirm flag: the UI sends confirm=1 on the second click after the
+  // warning is displayed.
+  const confirmed = formData.get("confirm") === "1";
+  if (!confirmed && (erUse.n > 0 || bankUse.n > 0 || splitUse.n > 0)) {
+    return {
+      ok: false,
+      error: `In use — ${bankUse.n} bank txn(s), ${splitUse.n} split(s), ${erUse.n} ER line(s). Click delete again to confirm; bank/split refs will be unlinked, ER lines will keep the funding source name in history.`,
+      unlinkedBankCount: bankUse.n,
+      unlinkedSplitCount: splitUse.n,
+    };
+  }
+
+  await db.delete(fundingSources).where(eq(fundingSources.id, id));
+
+  revalidatePath(`/budget/${year || ""}/grants`);
+  revalidatePath(`/budget/${year || ""}`);
+  redirect(`/budget/${year}/grants?deleted=1`);
 }
 
 // -------------------- Opening balance --------------------

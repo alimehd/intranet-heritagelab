@@ -10,6 +10,7 @@ import {
   getFundingSourceSpentById,
 } from "@/lib/budget/queries";
 import { parseYearParam } from "../../../BudgetNav";
+import { DeleteFundingSourceForm } from "./DeleteFundingSourceForm";
 
 export const metadata = { title: "Funding Source — Heritage Lab" };
 
@@ -52,7 +53,15 @@ export default async function FundingSourceDetailPage({
   const contract = Number(source.contractValue);
   const monthly = (source.monthlyExpected ?? []).map(Number);
   const scheduleTotal = monthly.reduce((s, v) => s + v, 0);
-  const restrictions = source.allowedCategoryCodes ?? [];
+  // Prefer the new categoryCaps shape; fall back to the legacy allowed array
+  // for any row that hasn't been backfilled yet.
+  const caps =
+    source.categoryCaps && source.categoryCaps.length > 0
+      ? source.categoryCaps
+      : (source.allowedCategoryCodes ?? []).map((code) => ({
+          code,
+          cap: null as number | null,
+        }));
   const editable = canEditBudget(session?.user?.email);
 
   return (
@@ -173,26 +182,62 @@ export default async function FundingSourceDetailPage({
 
       <section className="hl-card p-5">
         <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-          Category restrictions
+          Category restrictions &amp; caps
         </h2>
-        {restrictions.length === 0 ? (
+        {caps.length === 0 ? (
           <p className="mt-2 text-sm text-hl-muted">
             Unrestricted — this funding source can be tagged against any budget
-            line.
+            line with no dollar limit.
           </p>
         ) : (
-          <ul className="mt-2 flex flex-wrap gap-2 text-xs">
-            {restrictions.map((code) => (
-              <li
-                key={code}
-                className="hl-badge bg-amber-50 text-amber-800 ring-1 ring-amber-200"
-              >
-                {code}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3 overflow-hidden rounded-md border border-hl-border">
+            <table className="w-full text-sm">
+              <thead className="bg-hl-cream/60 text-xs uppercase tracking-wider text-hl-muted">
+                <tr>
+                  <th className="px-3 py-2 text-left">Category</th>
+                  <th className="px-3 py-2 text-right">Annual cap</th>
+                </tr>
+              </thead>
+              <tbody>
+                {caps.map((c) => (
+                  <tr key={c.code} className="border-t border-hl-border">
+                    <td className="px-3 py-2 font-medium text-hl-ink">
+                      {c.code}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {c.cap == null ? (
+                        <span className="text-hl-muted">No cap</span>
+                      ) : (
+                        formatCad(c.cap)
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
+
+      {editable ? (
+        <section className="hl-card border-red-200 bg-red-50/30 p-5">
+          <h2 className="text-base font-semibold tracking-tight text-red-900">
+            Danger zone
+          </h2>
+          <p className="mt-1 text-xs text-red-800/80">
+            Deleting unlinks this source from any tagged bank transactions and
+            splits (they revert to &ldquo;no funding source&rdquo;). Expense
+            report lines keep the funding source name in history.
+          </p>
+          <div className="mt-3">
+            <DeleteFundingSourceForm
+              id={source.id}
+              year={year}
+              name={source.name}
+            />
+          </div>
+        </section>
+      ) : null}
 
       {source.notes ? (
         <section className="hl-card p-5">

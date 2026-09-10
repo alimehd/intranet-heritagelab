@@ -15,7 +15,8 @@
     "import:td-csv": "tsx scripts/import-td-csv.ts",
     "diag:budget-lines": "tsx scripts/inspect-budget-lines.ts",
     "import:excel": "tsx scripts/import-excel-expenses.ts",
-    "verify:ledger": "tsx scripts/verify-ledger.ts"
+    "verify:ledger": "tsx scripts/verify-ledger.ts",
+    "backfill:caps": "tsx scripts/backfill-category-caps.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",

@@ -186,19 +186,43 @@ export async function getBudgetLineSpentMap(
   if (fyYear !== undefined) {
     const yearStart = `${fyYear}-01-01`;
     const yearEnd = `${fyYear}-12-31`;
+    // Direct bank debits — but only rows WITHOUT splits (splits govern).
     const directRows = await db.execute(sql`
       SELECT budget_line_id, COALESCE(SUM(debit), 0)::text AS total
-      FROM bank_transaction
+      FROM bank_transaction bt
       WHERE classification = 'direct_expense'
         AND budget_line_id IS NOT NULL
         AND txn_date >= ${yearStart}
         AND txn_date <= ${yearEnd}
+        AND NOT EXISTS (
+          SELECT 1 FROM bank_transaction_split s WHERE s.bank_txn_id = bt.id
+        )
       GROUP BY budget_line_id
     `);
     const directList = extractRows<{ budget_line_id: string; total: string }>(
       directRows,
     );
     for (const r of directList) {
+      result.set(
+        r.budget_line_id,
+        (result.get(r.budget_line_id) ?? 0) + Number(r.total),
+      );
+    }
+
+    // Split allocations (per-line amounts) for txns in this fiscal year.
+    const splitRows = await db.execute(sql`
+      SELECT s.budget_line_id, COALESCE(SUM(s.amount), 0)::text AS total
+      FROM bank_transaction_split s
+      JOIN bank_transaction bt ON bt.id = s.bank_txn_id
+      WHERE bt.classification = 'direct_expense'
+        AND bt.txn_date >= ${yearStart}
+        AND bt.txn_date <= ${yearEnd}
+      GROUP BY s.budget_line_id
+    `);
+    const splitList = extractRows<{ budget_line_id: string; total: string }>(
+      splitRows,
+    );
+    for (const r of splitList) {
       result.set(
         r.budget_line_id,
         (result.get(r.budget_line_id) ?? 0) + Number(r.total),

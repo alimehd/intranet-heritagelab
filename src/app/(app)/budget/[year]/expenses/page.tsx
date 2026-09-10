@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
-import { Banknote, Download, FileText, ListChecks, PenLine } from "lucide-react";
+import {
+  AlertCircle,
+  Banknote,
+  Download,
+  FileText,
+  ListChecks,
+  PenLine,
+  Split,
+} from "lucide-react";
 import { canViewBudget } from "@/lib/budget/people";
 import {
   getBudgetGrid,
@@ -65,7 +73,11 @@ export default async function ExpensesLedgerPage({
   const budgetLineId = sp.line || undefined;
   const fundingSourceId = sp.funding || undefined;
   const sourceType =
-    sp.source === "bank" || sp.source === "er" || sp.source === "manual"
+    sp.source === "bank" ||
+    sp.source === "er" ||
+    sp.source === "manual" ||
+    sp.source === "unclassified" ||
+    sp.source === "split"
       ? sp.source
       : undefined;
   const search = sp.q?.trim() || undefined;
@@ -207,18 +219,35 @@ export default async function ExpensesLedgerPage({
                 </thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.id}>
+                    <tr
+                      key={r.id}
+                      className={r.pending ? "bg-amber-50/40 text-hl-muted" : ""}
+                    >
                       <td className="tabular-nums">{r.date}</td>
-                      <td>{r.description}</td>
+                      <td className={r.pending ? "italic" : ""}>
+                        {r.description}
+                      </td>
                       <td className="text-hl-muted">
-                        <span className="font-medium text-hl-ink">
-                          {r.budgetLineCode ?? "—"}
-                        </span>
-                        {r.budgetLineName ? (
-                          <span className="block text-xs">
-                            {r.budgetLineName}
-                          </span>
-                        ) : null}
+                        {r.pending ? (
+                          <Link
+                            href={`/budget/${year}/bank/${r.source.kind !== "er" ? r.source.txnId : ""}`}
+                            className="inline-flex items-center gap-1 text-amber-700 hover:underline"
+                          >
+                            <AlertCircle className="h-3 w-3" />
+                            Needs a budget line
+                          </Link>
+                        ) : (
+                          <>
+                            <span className="font-medium text-hl-ink">
+                              {r.budgetLineCode ?? "—"}
+                            </span>
+                            {r.budgetLineName ? (
+                              <span className="block text-xs">
+                                {r.budgetLineName}
+                              </span>
+                            ) : null}
+                          </>
+                        )}
                       </td>
                       <td className="text-hl-muted">{r.categoryName ?? "—"}</td>
                       <td className="text-hl-muted">{r.fundingSourceName ?? "—"}</td>
@@ -235,13 +264,31 @@ export default async function ExpensesLedgerPage({
                             {r.source.reportNumber}
                           </Link>
                         ) : r.source.kind === "manual" ? (
-                          <span
-                            className="inline-flex items-center gap-1 text-hl-muted"
+                          <Link
+                            href={`/budget/${year}/bank/${r.source.txnId}`}
+                            className="inline-flex items-center gap-1 text-hl-muted hover:text-hl-ink hover:underline"
                             title="Imported from Ali's Excel ledger, no matching TD bank row (paid outside this account or before the TD window)."
                           >
                             <PenLine className="h-3 w-3" />
                             Manual
-                          </span>
+                          </Link>
+                        ) : r.source.kind === "split" ? (
+                          <Link
+                            href={`/budget/${year}/bank/${r.source.txnId}`}
+                            className="inline-flex items-center gap-1 text-hl-green-700 hover:underline"
+                            title="One line of a split bank transaction."
+                          >
+                            <Split className="h-3 w-3" />
+                            Split
+                          </Link>
+                        ) : r.source.kind === "unclassified" ? (
+                          <Link
+                            href={`/budget/${year}/bank/${r.source.txnId}`}
+                            className="inline-flex items-center gap-1 text-amber-700 hover:underline"
+                          >
+                            <AlertCircle className="h-3 w-3" />
+                            Classify
+                          </Link>
                         ) : (
                           <Link
                             href={`/budget/${year}/bank/${r.source.txnId}`}
@@ -294,7 +341,7 @@ function FiltersBar({
   categoryCode: string | undefined;
   budgetLineId: string | undefined;
   fundingSourceId: string | undefined;
-  sourceType: "bank" | "er" | "manual" | undefined;
+  sourceType: "bank" | "er" | "manual" | "unclassified" | "split" | undefined;
   search: string | undefined;
 }) {
   const anyActive =
@@ -386,7 +433,9 @@ function FiltersBar({
           >
             <option value="">All sources</option>
             <option value="bank">Bank txn (TD)</option>
+            <option value="split">Bank split</option>
             <option value="manual">Manual entry (pre-import)</option>
+            <option value="unclassified">Unclassified (needs review)</option>
             <option value="er">Expense reports</option>
           </select>
         </div>
