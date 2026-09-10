@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
-import { Banknote, Download, FileText, ListChecks } from "lucide-react";
+import { Banknote, Download, FileText, ListChecks, PenLine } from "lucide-react";
 import { canViewBudget } from "@/lib/budget/people";
 import {
   getBudgetGrid,
@@ -65,7 +65,9 @@ export default async function ExpensesLedgerPage({
   const budgetLineId = sp.line || undefined;
   const fundingSourceId = sp.funding || undefined;
   const sourceType =
-    sp.source === "bank" || sp.source === "er" ? sp.source : undefined;
+    sp.source === "bank" || sp.source === "er" || sp.source === "manual"
+      ? sp.source
+      : undefined;
   const search = sp.q?.trim() || undefined;
 
   const [fy, allYears] = await Promise.all([getFiscalYear(year), getFiscalYears()]);
@@ -232,6 +234,14 @@ export default async function ExpensesLedgerPage({
                             <FileText className="h-3 w-3" />
                             {r.source.reportNumber}
                           </Link>
+                        ) : r.source.kind === "manual" ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-hl-muted"
+                            title="Imported from Ali's Excel ledger, no matching TD bank row (paid outside this account or before the TD window)."
+                          >
+                            <PenLine className="h-3 w-3" />
+                            Manual
+                          </span>
                         ) : (
                           <Link
                             href={`/budget/${year}/bank/${r.source.txnId}`}
@@ -284,7 +294,7 @@ function FiltersBar({
   categoryCode: string | undefined;
   budgetLineId: string | undefined;
   fundingSourceId: string | undefined;
-  sourceType: "bank" | "er" | undefined;
+  sourceType: "bank" | "er" | "manual" | undefined;
   search: string | undefined;
 }) {
   const anyActive =
@@ -374,9 +384,10 @@ function FiltersBar({
             defaultValue={sourceType ?? ""}
             className="hl-input"
           >
-            <option value="">Bank + ER</option>
-            <option value="bank">Bank only</option>
-            <option value="er">Expense reports only</option>
+            <option value="">All sources</option>
+            <option value="bank">Bank txn (TD)</option>
+            <option value="manual">Manual entry (pre-import)</option>
+            <option value="er">Expense reports</option>
           </select>
         </div>
         <div className="flex items-end gap-2 md:col-span-6">

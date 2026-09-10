@@ -45,6 +45,11 @@ export type ExpenseLedgerRow = {
         accountName: string | null;
       }
     | {
+        kind: "manual";
+        txnId: string;
+        accountName: string | null;
+      }
+    | {
         kind: "er";
         reportId: string;
         reportNumber: string;
@@ -58,7 +63,7 @@ export type ExpenseLedgerFilters = {
   categoryCode?: string;
   budgetLineId?: string;
   fundingSourceId?: string;
-  sourceType?: "bank" | "er";
+  sourceType?: "bank" | "er" | "manual";
   search?: string; // description substring, case-insensitive
 };
 
@@ -102,6 +107,8 @@ export async function getExpenseLedger(
     );
   }
 
+  // Bank + Manual live in the same table; we split them by account name
+  // after the query. Skip entirely if the caller filtered to ER only.
   const bankRows =
     filters.sourceType === "er"
       ? []
@@ -207,27 +214,42 @@ export async function getExpenseLedger(
 
   // ---- Merge ----
   const merged: ExpenseLedgerRow[] = [
-    ...bankRows.map<ExpenseLedgerRow>((r) => {
-      const cat = r.categoryId ? catById.get(r.categoryId) : null;
-      return {
-        id: `bank_${r.id}`,
-        date: r.txnDate,
-        description: r.description,
-        categoryCode: cat?.code ?? null,
-        categoryName: cat?.name ?? null,
-        budgetLineId: r.budgetLineId,
-        budgetLineCode: r.budgetLineCode,
-        budgetLineName: r.budgetLineName,
-        fundingSourceId: r.fundingSourceId,
-        fundingSourceName: r.fundingSourceName,
-        cost: Number(r.debit ?? 0),
-        source: {
-          kind: "bank",
-          txnId: r.id,
-          accountName: r.accountName ?? null,
-        },
-      };
-    }),
+    ...bankRows
+      .map<ExpenseLedgerRow>((r) => {
+        const cat = r.categoryId ? catById.get(r.categoryId) : null;
+        const isManual = r.accountName === "Manual entries (pre-import)";
+        return {
+          id: `${isManual ? "manual" : "bank"}_${r.id}`,
+          date: r.txnDate,
+          description: r.description,
+          categoryCode: cat?.code ?? null,
+          categoryName: cat?.name ?? null,
+          budgetLineId: r.budgetLineId,
+          budgetLineCode: r.budgetLineCode,
+          budgetLineName: r.budgetLineName,
+          fundingSourceId: r.fundingSourceId,
+          fundingSourceName: r.fundingSourceName,
+          cost: Number(r.debit ?? 0),
+          source: isManual
+            ? {
+                kind: "manual",
+                txnId: r.id,
+                accountName: r.accountName ?? null,
+              }
+            : {
+                kind: "bank",
+                txnId: r.id,
+                accountName: r.accountName ?? null,
+              },
+        };
+      })
+      // If caller asked for bank-only or manual-only, honour it after the
+      // in-memory split (the SQL query can't tell them apart cheaply).
+      .filter((r) => {
+        if (filters.sourceType === "bank") return r.source.kind === "bank";
+        if (filters.sourceType === "manual") return r.source.kind === "manual";
+        return true;
+      }),
     ...erRows.map<ExpenseLedgerRow>((r) => {
       const cat = r.categoryId ? catById.get(r.categoryId) : null;
       return {
@@ -305,13 +327,15 @@ export function toCsv(rows: ExpenseLedgerRow[]): string {
   const lines = [headers.map(csvEscape).join(",")];
   for (const r of rows) {
     const sourceLabel =
-      r.source.kind === "bank"
-        ? "Bank"
-        : `ER (${r.source.reportNumber})`;
+      r.source.kind === "er"
+        ? `ER (${r.source.reportNumber})`
+        : r.source.kind === "manual"
+          ? "Manual"
+          : "Bank";
     const sourceDetail =
-      r.source.kind === "bank"
-        ? r.source.accountName ?? ""
-        : r.source.submitterName;
+      r.source.kind === "er"
+        ? r.source.submitterName
+        : r.source.accountName ?? "";
     lines.push(
       [
         r.date,

@@ -34,7 +34,9 @@ export async function GET(
   const fundingSourceId = url.searchParams.get("funding") ?? undefined;
   const sourceRaw = url.searchParams.get("source");
   const sourceType =
-    sourceRaw === "bank" || sourceRaw === "er" ? sourceRaw : undefined;
+    sourceRaw === "bank" || sourceRaw === "er" || sourceRaw === "manual"
+      ? sourceRaw
+      : undefined;
   const search = url.searchParams.get("q") ?? undefined;
 
   const rows = await getExpenseLedger(
