@@ -31,6 +31,7 @@ export type FundingSourceSeed = {
   kind: "grant" | "service_contract" | "donation" | "other";
   monthly: MonthlyProjection;
   notes?: string;
+  status?: "active" | "completed" | "cancelled";
   contractStartDate?: string;
   contractEndDate?: string;
   contractTotalValue?: number;
@@ -117,6 +118,36 @@ export const FUNDING_SOURCES_2026: readonly FundingSourceSeed[] = [
       // Compute/infra $20k + document-processing system $10k.
       { code: "004", cap: 30_000 },
       // Contingency 3.3%.
+      { code: "006", cap: 5_000 },
+    ],
+  },
+  {
+    name: "PME MTL",
+    kind: "grant",
+    monthly: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    notes:
+      "PME MTL Ouest-de-l'Île — Fonds d'économie sociale (FES). " +
+      "Project: Outils numériques pour la préservation linguistique " +
+      "autochtone dans l'Ouest-de-l'Île. 12 months starting January 2025. " +
+      "Grant $50,000 of a $62,500 start-up (Heritage Lab covered $12,500). " +
+      "Eligible: equipment $15k, consulting $32.5k, technical implementation " +
+      "$10k, documentation $5k. No Heritage Lab salaries. " +
+      "Grant is fully spent / closed.",
+    status: "completed",
+    contractStartDate: "2025-01-01",
+    contractEndDate: "2025-12-31",
+    contractTotalValue: 50_000,
+    yearlyAllocations: [{ year: 2025, amount: 50_000 }],
+    categoryCaps: [
+      // UX $8k + database/AI $19.5k + technical training $6k + docs $5k.
+      { code: "001", cap: 38_500 },
+      // Workstations $10k + scanners $2k + mobile testing $3k.
+      { code: "002", cap: 15_000 },
+      // User-facing documentation / promo materials (booked as 003-3).
+      { code: "003", cap: 5_000 },
+      // IT infrastructure configuration.
+      { code: "004", cap: 4_000 },
+      // Cybersecurity audit $5k.
       { code: "006", cap: 5_000 },
     ],
   },

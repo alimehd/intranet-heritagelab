@@ -124,7 +124,7 @@ async function main() {
       monthlyExpected: monthly,
       allowedCategoryCodes: (src.categoryCaps ?? []).map((c) => c.code),
       categoryCaps: src.categoryCaps ?? [],
-      status: "active",
+      status: src.status ?? "active",
       notes: src.notes ?? null,
       sortOrder: i,
       contractStartDate: src.contractStartDate ?? null,
