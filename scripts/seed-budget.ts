@@ -127,6 +127,13 @@ async function main() {
       status: "active",
       notes: src.notes ?? null,
       sortOrder: i,
+      contractStartDate: src.contractStartDate ?? null,
+      contractEndDate: src.contractEndDate ?? null,
+      contractTotalValue:
+        src.contractTotalValue == null
+          ? null
+          : src.contractTotalValue.toFixed(2),
+      yearlyAllocations: src.yearlyAllocations ?? [],
     });
     fundingCount++;
     fundingTotal += yearTotal;

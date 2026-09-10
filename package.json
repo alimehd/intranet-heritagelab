@@ -16,7 +16,8 @@
     "diag:budget-lines": "tsx scripts/inspect-budget-lines.ts",
     "import:excel": "tsx scripts/import-excel-expenses.ts",
     "verify:ledger": "tsx scripts/verify-ledger.ts",
-    "backfill:caps": "tsx scripts/backfill-category-caps.ts"
+    "backfill:caps": "tsx scripts/backfill-category-caps.ts",
+    "update:esuma": "tsx scripts/update-esuma-contract.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",

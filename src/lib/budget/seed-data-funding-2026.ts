@@ -31,6 +31,10 @@ export type FundingSourceSeed = {
   kind: "grant" | "service_contract" | "donation" | "other";
   monthly: MonthlyProjection;
   notes?: string;
+  contractStartDate?: string;
+  contractEndDate?: string;
+  contractTotalValue?: number;
+  yearlyAllocations?: Array<{ year: number; amount: number }>;
 };
 
 export const FUNDING_SOURCES_2026: readonly FundingSourceSeed[] = [
@@ -44,9 +48,24 @@ export const FUNDING_SOURCES_2026: readonly FundingSourceSeed[] = [
   {
     name: "ESUMA",
     kind: "grant",
-    monthly: [0, 0, 50000, 0, 75000, 0, 0, 0, 50000, 0, 0, 0],
+    monthly: [0, 0, 50000, 0, 50000, 0, 0, 0, 50000, 0, 0, 0],
     notes:
-      "2026 tranches. The 2025 ESUMA-AYAGUTA grant ($150k) is a separate historical entry; it lives on the 2025 fiscal year once that's seeded.",
+      "KRG Sustainable Employment — file ET0826001 (signed 24 Mar 2026). " +
+      "Project: Interactive Inuktitut Language Learning Platform. " +
+      "Program 08-Delivery Assistance / ESUMA. " +
+      "Contract $150,000, 1 Apr 2026 – 31 Mar 2027 (KRG fiscal). " +
+      "Schedule B: training/dev $45k, trainer fees $37k, trainer travel $10k, " +
+      "participant lodging $5k, other special costs $53k (QA/cultural " +
+      "validation, language committee, youth artist, software, server). " +
+      "No admin fee. Reimbursement on 30–90 day claims. " +
+      "The 2025 ESUMA-AYAGUTA grant ($150k) is a separate historical entry.",
+    contractStartDate: "2026-04-01",
+    contractEndDate: "2027-03-31",
+    contractTotalValue: 150_000,
+    yearlyAllocations: [
+      { year: 2026, amount: 150_000 },
+      { year: 2027, amount: 0 },
+    ],
   },
   {
     name: "ANICINABE - MINWASHIN",
