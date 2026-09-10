@@ -87,10 +87,38 @@ export const FUNDING_SOURCES_2026: readonly FundingSourceSeed[] = [
     notes: "Two tranches of $60k (Feb + Sept).",
   },
   {
-    name: "Secrétariat aux affaires Autochtones",
+    name: "FIA IV",
     kind: "grant",
-    monthly: [0, 0, 80000, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    notes: "Quebec government — single Q1 disbursement.",
+    monthly: [0, 0, 120000, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    notes:
+      "Fonds d'initiatives autochtones IV (Secrétariat aux affaires " +
+      "autochtones) — proposition TTS-IV4. " +
+      "Project: Synthèse vocale inuktitut pour le développement social " +
+      "communautaire. 14 months (Phase 1 months 1–10, Phase 2 months 11–14). " +
+      "FIA IV ask $120,000 (80% of the $150k project). " +
+      "PME MTL $30k, MILA in-kind, and Abundant Intelligences in-kind are " +
+      "excluded from this pot. " +
+      "Replaces the old $80k SAA placeholder.",
+    contractStartDate: "2026-01-01",
+    contractEndDate: "2027-02-28",
+    contractTotalValue: 120_000,
+    yearlyAllocations: [
+      { year: 2026, amount: 120_000 },
+      { year: 2027, amount: 0 },
+    ],
+    // Proposal expense table → HL categories. Caps are the full eligible
+    // amounts (what can be billed in each bucket). This pot is $120k;
+    // the leftover $30k of the $150k project is PME and is not tracked here.
+    categoryCaps: [
+      // Personnel $70k + vocal $25k + platform integration $5k + QA $5k.
+      { code: "001", cap: 105_000 },
+      // Community travel / recording logistics.
+      { code: "003", cap: 10_000 },
+      // Compute/infra $20k + document-processing system $10k.
+      { code: "004", cap: 30_000 },
+      // Contingency 3.3%.
+      { code: "006", cap: 5_000 },
+    ],
   },
   {
     name: "Qarjuit",

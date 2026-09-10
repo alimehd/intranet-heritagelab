@@ -407,8 +407,8 @@ export function FundingSourceForm({
         <p className="mt-1 text-xs text-hl-muted">
           Leave off for single-year contracts. When on, record the full
           contract period, total value, and per-year allocation so multi-year
-          grants (e.g. Secrétariat aux affaires Autochtones — $80K year 1
-          out of a $200K contract) can be tracked across fiscal boundaries.
+          grants (e.g. FIA IV — $120K over a 14-month TTS project) can be
+          tracked across fiscal boundaries.
           The &ldquo;Contract value (annual)&rdquo; above still represents
           this year&rsquo;s slice — the budget engine uses that number.
         </p>
