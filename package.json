@@ -10,13 +10,15 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "verify:leave": "tsx scripts/verify-leave.ts"
+    "verify:leave": "tsx scripts/verify-leave.ts",
+    "seed:budget": "tsx scripts/seed-budget.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",
     "@hookform/resolvers": "^3.10.0",
     "@neondatabase/serverless": "^0.10.4",
     "@react-pdf/renderer": "^4.1.6",
+    "@vercel/blob": "^2.8.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.4",
     "lucide-react": "^0.474.0",

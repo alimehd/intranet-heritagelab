@@ -1,0 +1,428 @@
+import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { db } from "@/lib/db";
+import {
+  BANK_TXN_CLASSIFICATIONS,
+  bankAccounts,
+  bankTransactions,
+  budgetCategories,
+  budgetFiscalYears,
+  budgetLines,
+  expenseReportLines,
+  expenseReports,
+  fundingSources,
+  type BankAccount,
+  type BankTransaction,
+  type BankTxnClassification,
+  type BudgetFiscalYear,
+  type FundingSource,
+} from "@/lib/db/schema";
+
+// -------------------- Types --------------------
+
+export type BudgetGridLine = {
+  id: string;
+  code: string;
+  fullCode: string;
+  name: string;
+  monthly: number[];
+  annual: number;
+};
+
+export type BudgetGridCategory = {
+  id: string;
+  code: string;
+  name: string;
+  lines: BudgetGridLine[];
+  monthlyTotals: number[];
+  annualTotal: number;
+};
+
+export type BudgetGrid = {
+  fiscalYear: BudgetFiscalYear;
+  categories: BudgetGridCategory[];
+  monthlyTotals: number[];
+  annualTotal: number;
+};
+
+export type RevenueGridRow = {
+  id: string;
+  name: string;
+  kind: string;
+  monthly: number[];
+  annual: number;
+};
+
+export type RevenueGrid = {
+  fiscalYear: BudgetFiscalYear;
+  rows: RevenueGridRow[];
+  monthlyTotals: number[];
+  annualTotal: number;
+};
+
+/** Snapshot of cash flow for a fiscal year, computed live from bank txns. */
+export type CashPosition = {
+  fiscalYearId: string;
+  openingBalance: number | null;
+  totalCredits: number; // money in (grants, contract payments, refunds…)
+  totalDebits: number; // money out (all classified debits)
+  /** Sum of latest running balance across all bank accounts. */
+  currentBalance: number | null;
+  accountsCount: number;
+  transactionsCount: number;
+};
+
+// -------------------- Fiscal years --------------------
+
+export async function getFiscalYears(): Promise<BudgetFiscalYear[]> {
+  return db
+    .select()
+    .from(budgetFiscalYears)
+    .orderBy(asc(budgetFiscalYears.year));
+}
+
+export async function getFiscalYear(
+  year: number,
+): Promise<BudgetFiscalYear | null> {
+  const [row] = await db
+    .select()
+    .from(budgetFiscalYears)
+    .where(eq(budgetFiscalYears.year, year));
+  return row ?? null;
+}
+
+// -------------------- Budget grid (disbursements) --------------------
+
+export async function getBudgetGrid(year: number): Promise<BudgetGrid | null> {
+  const fiscalYear = await getFiscalYear(year);
+  if (!fiscalYear) return null;
+
+  const cats = await db
+    .select()
+    .from(budgetCategories)
+    .where(eq(budgetCategories.fiscalYearId, fiscalYear.id))
+    .orderBy(asc(budgetCategories.sortOrder));
+
+  const allLines = cats.length
+    ? await db
+        .select()
+        .from(budgetLines)
+        .orderBy(asc(budgetLines.categoryId), asc(budgetLines.sortOrder))
+    : [];
+
+  const byCategory = new Map<string, BudgetGridLine[]>();
+  for (const line of allLines) {
+    const monthly = padTo12((line.monthlyProjected ?? []).map(Number));
+    const grid: BudgetGridLine = {
+      id: line.id,
+      code: line.code,
+      fullCode: line.fullCode,
+      name: line.name,
+      monthly,
+      annual: sum(monthly),
+    };
+    const bucket = byCategory.get(line.categoryId);
+    if (bucket) bucket.push(grid);
+    else byCategory.set(line.categoryId, [grid]);
+  }
+
+  const categories: BudgetGridCategory[] = cats.map((c) => {
+    const lines = byCategory.get(c.id) ?? [];
+    const monthlyTotals = sumRows(lines.map((l) => l.monthly));
+    return {
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      lines,
+      monthlyTotals,
+      annualTotal: sum(monthlyTotals),
+    };
+  });
+
+  const monthlyTotals = sumRows(categories.map((c) => c.monthlyTotals));
+
+  return {
+    fiscalYear,
+    categories,
+    monthlyTotals,
+    annualTotal: sum(monthlyTotals),
+  };
+}
+
+// -------------------- Funding sources & revenue --------------------
+
+export async function getFundingSources(
+  fiscalYearId: string,
+): Promise<FundingSource[]> {
+  return db
+    .select()
+    .from(fundingSources)
+    .where(eq(fundingSources.fiscalYearId, fiscalYearId))
+    .orderBy(asc(fundingSources.sortOrder), asc(fundingSources.name));
+}
+
+export async function getFundingSourceById(
+  id: string,
+): Promise<FundingSource | null> {
+  const [row] = await db
+    .select()
+    .from(fundingSources)
+    .where(eq(fundingSources.id, id));
+  return row ?? null;
+}
+
+/** Revenue grid — one row per funding source, monthly expected receipts. */
+export async function getRevenueGrid(year: number): Promise<RevenueGrid | null> {
+  const fiscalYear = await getFiscalYear(year);
+  if (!fiscalYear) return null;
+
+  const sources = await getFundingSources(fiscalYear.id);
+  const rows: RevenueGridRow[] = sources.map((s) => {
+    const monthly = padTo12((s.monthlyExpected ?? []).map(Number));
+    return {
+      id: s.id,
+      name: s.name,
+      kind: s.kind,
+      monthly,
+      annual: sum(monthly),
+    };
+  });
+  const monthlyTotals = sumRows(rows.map((r) => r.monthly));
+  return {
+    fiscalYear,
+    rows,
+    monthlyTotals,
+    annualTotal: sum(monthlyTotals),
+  };
+}
+
+/** Amount actually received (credits) tagged to a funding source YTD. */
+export async function getFundingSourceReceivedById(
+  id: string,
+): Promise<number> {
+  const [row] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${bankTransactions.credit}), 0)`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.fundingSourceId, id),
+        eq(bankTransactions.classification, "grant_receipt"),
+      ),
+    );
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Amount spent to date against a funding source, combining direct bank
+ * debits (classification=direct_expense with this funding source) AND paid
+ * ER lines that reference this funding source. The two never overlap: an
+ * ER reimbursement bank txn is classified as `er_reimbursement`, so its
+ * debit isn't counted here — the ER's line items are counted instead.
+ */
+export async function getFundingSourceSpentById(id: string): Promise<number> {
+  const [directRow] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${bankTransactions.debit}), 0)`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.fundingSourceId, id),
+        eq(bankTransactions.classification, "direct_expense"),
+      ),
+    );
+
+  const [erRow] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${expenseReportLines.cost}), 0)`,
+    })
+    .from(expenseReportLines)
+    .innerJoin(expenseReports, eq(expenseReports.id, expenseReportLines.reportId))
+    .where(
+      and(
+        eq(expenseReportLines.fundingSourceId, id),
+        eq(expenseReports.status, "paid"),
+      ),
+    );
+
+  return Number(directRow?.total ?? 0) + Number(erRow?.total ?? 0);
+}
+
+// -------------------- Bank accounts & transactions --------------------
+
+export async function getBankAccounts(): Promise<BankAccount[]> {
+  return db
+    .select()
+    .from(bankAccounts)
+    .orderBy(asc(bankAccounts.sortOrder), asc(bankAccounts.name));
+}
+
+export async function getBankAccountByName(
+  name: string,
+): Promise<BankAccount | null> {
+  const [row] = await db
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.name, name));
+  return row ?? null;
+}
+
+/** Cash position rollup for a year — reads live from bank_transaction. */
+export async function getCashPosition(year: number): Promise<CashPosition | null> {
+  const fiscalYear = await getFiscalYear(year);
+  if (!fiscalYear) return null;
+
+  const accounts = await getBankAccounts();
+
+  // Sum credits & debits for txns in this calendar year.
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+  const [totals] = await db
+    .select({
+      credits: sql<string>`COALESCE(SUM(${bankTransactions.credit}), 0)`,
+      debits: sql<string>`COALESCE(SUM(${bankTransactions.debit}), 0)`,
+      txnCount: sql<number>`COUNT(*)::int`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        sql`${bankTransactions.txnDate} >= ${yearStart}`,
+        sql`${bankTransactions.txnDate} <= ${yearEnd}`,
+      ),
+    );
+
+  // Current balance = sum of the latest running_balance per account across
+  // all accounts. Uses a DISTINCT ON in a raw fragment because Drizzle
+  // doesn't expose it cleanly.
+  const latestRows = accounts.length
+    ? await db.execute<{ running_balance: string | null }>(sql`
+        SELECT DISTINCT ON (account_id) running_balance
+        FROM bank_transaction
+        ORDER BY account_id, txn_date DESC, created_at DESC
+      `)
+    : { rows: [] as { running_balance: string | null }[] };
+
+  const rows = Array.isArray(latestRows)
+    ? (latestRows as unknown as { running_balance: string | null }[])
+    : (latestRows as { rows: { running_balance: string | null }[] }).rows;
+
+  const currentBalance = rows.length
+    ? rows.reduce((s, r) => s + Number(r.running_balance ?? 0), 0)
+    : null;
+
+  return {
+    fiscalYearId: fiscalYear.id,
+    openingBalance: fiscalYear.openingBalance ? Number(fiscalYear.openingBalance) : null,
+    totalCredits: Number(totals?.credits ?? 0),
+    totalDebits: Number(totals?.debits ?? 0),
+    currentBalance,
+    accountsCount: accounts.length,
+    transactionsCount: Number(totals?.txnCount ?? 0),
+  };
+}
+
+export type BankTxnFilters = {
+  accountId?: string;
+  classification?: BankTxnClassification;
+  year?: number;
+  search?: string; // description substring, case-insensitive
+};
+
+export async function getBankTransactions(
+  filters: BankTxnFilters = {},
+  limit = 500,
+): Promise<BankTransaction[]> {
+  const clauses: SQL[] = [];
+  if (filters.accountId) clauses.push(eq(bankTransactions.accountId, filters.accountId));
+  if (filters.classification)
+    clauses.push(eq(bankTransactions.classification, filters.classification));
+  if (filters.year) {
+    clauses.push(sql`${bankTransactions.txnDate} >= ${`${filters.year}-01-01`}`);
+    clauses.push(sql`${bankTransactions.txnDate} <= ${`${filters.year}-12-31`}`);
+  }
+  if (filters.search) {
+    clauses.push(sql`${bankTransactions.description} ILIKE ${`%${filters.search}%`}`);
+  }
+
+  return db
+    .select()
+    .from(bankTransactions)
+    .where(clauses.length > 0 ? and(...clauses) : undefined)
+    .orderBy(desc(bankTransactions.txnDate), desc(bankTransactions.createdAt))
+    .limit(limit);
+}
+
+export async function getBankTransactionById(
+  id: string,
+): Promise<BankTransaction | null> {
+  const [row] = await db
+    .select()
+    .from(bankTransactions)
+    .where(eq(bankTransactions.id, id));
+  return row ?? null;
+}
+
+/** Rows that need human review, per classification breakdown. */
+export async function getReconciliationHealth(year?: number): Promise<
+  Array<{ classification: BankTxnClassification; count: number }>
+> {
+  const clauses: SQL[] = [];
+  if (year) {
+    clauses.push(sql`${bankTransactions.txnDate} >= ${`${year}-01-01`}`);
+    clauses.push(sql`${bankTransactions.txnDate} <= ${`${year}-12-31`}`);
+  }
+  const rows = await db
+    .select({
+      classification: bankTransactions.classification,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(bankTransactions)
+    .where(clauses.length > 0 ? and(...clauses) : undefined)
+    .groupBy(bankTransactions.classification);
+
+  return rows.map((r) => ({
+    classification: r.classification as BankTxnClassification,
+    count: Number(r.count ?? 0),
+  }));
+}
+
+/** Reversal candidates: prior debits with the same amount and account, close to the reversal date. */
+export async function findReversalCandidates(
+  reversal: Pick<BankTransaction, "accountId" | "credit" | "txnDate">,
+  windowDays = 30,
+): Promise<BankTransaction[]> {
+  if (!reversal.credit || !reversal.accountId) return [];
+  // Postgres date arithmetic on the ISO string column.
+  return db
+    .select()
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.accountId, reversal.accountId),
+        eq(bankTransactions.debit, reversal.credit),
+        sql`${bankTransactions.txnDate}::date >= (${reversal.txnDate}::date - INTERVAL '${sql.raw(String(windowDays))} days')`,
+        sql`${bankTransactions.txnDate}::date <= ${reversal.txnDate}::date`,
+        // Don't propose a txn that's already paired as a reversal target.
+        isNull(bankTransactions.reversalOfTxnId),
+      ),
+    )
+    .orderBy(desc(bankTransactions.txnDate))
+    .limit(10);
+}
+
+// -------------------- Helpers --------------------
+
+function sum(arr: number[]): number {
+  return arr.reduce((s, v) => s + v, 0);
+}
+
+function sumRows(rows: number[][]): number[] {
+  return Array.from({ length: 12 }, (_, i) => rows.reduce((s, r) => s + (r[i] ?? 0), 0));
+}
+
+function padTo12(arr: number[]): number[] {
+  return Array.from({ length: 12 }, (_, i) => arr[i] ?? 0);
+}
+
+export { BANK_TXN_CLASSIFICATIONS };

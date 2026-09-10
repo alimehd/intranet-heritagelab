@@ -3,6 +3,7 @@ import Image from "next/image";
 import { auth, signOut } from "@/auth";
 import { Logo } from "@/components/Logo";
 import { isBoardMember } from "@/lib/roles";
+import { canViewBudget } from "@/lib/budget/people";
 import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
 import {
   LayoutDashboard,
@@ -13,21 +14,33 @@ import {
   BookUser,
   Users,
   CalendarDays,
+  Wallet,
 } from "lucide-react";
 
-const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/travel-claims", label: "Travel Claims", icon: Plane },
-  { href: "/travel-claims/new", label: "New Claim", icon: FileText },
-  { href: "/leave", label: "Vacation & Sick Days", icon: CalendarDays },
-  { href: "/policies", label: "Resources", icon: BookOpen },
-  { href: "/directory", label: "Directory", icon: BookUser, soon: true },
-];
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  soon?: boolean;
+};
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   const user = session?.user;
   const boardMember = isBoardMember(user?.email);
+  const budgetVisible = canViewBudget(user?.email);
+
+  const nav: NavItem[] = [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/travel-claims", label: "Travel Claims", icon: Plane },
+    { href: "/travel-claims/new", label: "New Claim", icon: FileText },
+    { href: "/leave", label: "Vacation & Sick Days", icon: CalendarDays },
+    ...(budgetVisible
+      ? [{ href: "/budget", label: "Budget", icon: Wallet } satisfies NavItem]
+      : []),
+    { href: "/policies", label: "Resources", icon: BookOpen },
+    { href: "/directory", label: "Directory", icon: BookUser, soon: true },
+  ];
 
   return (
     <div className="min-h-screen bg-hl-cream">
