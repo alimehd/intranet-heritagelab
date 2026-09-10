@@ -35,6 +35,8 @@ export type FundingSourceSeed = {
   contractEndDate?: string;
   contractTotalValue?: number;
   yearlyAllocations?: Array<{ year: number; amount: number }>;
+  /** Empty / omitted = unrestricted. Caps are category-level (001, 003, …). */
+  categoryCaps?: Array<{ code: string; cap: number | null }>;
 };
 
 export const FUNDING_SOURCES_2026: readonly FundingSourceSeed[] = [
@@ -65,6 +67,17 @@ export const FUNDING_SOURCES_2026: readonly FundingSourceSeed[] = [
     yearlyAllocations: [
       { year: 2026, amount: 150_000 },
       { year: 2027, amount: 0 },
+    ],
+    // Schedule B eligible categories only. Blank rows (wages, equipment,
+    // facilities, admin, participant travel/meals) are not billable.
+    categoryCaps: [
+      // Lead/AI $45k + trainer/content $37k + QA/UI $14.5k + language
+      // committee/youth artist $20k.
+      { code: "001", cap: 116_500 },
+      // Trainer travel $10k + participant lodging $5k.
+      { code: "003", cap: 15_000 },
+      // Software/accessibility $10k + server maintenance $8.5k.
+      { code: "004", cap: 18_500 },
     ],
   },
   {

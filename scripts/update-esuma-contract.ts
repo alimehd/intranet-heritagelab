@@ -22,6 +22,17 @@ const NOTES =
   "No admin fee. Reimbursement on 30–90 day claims. " +
   "The 2025 ESUMA-AYAGUTA grant ($150k) is a separate historical entry.";
 
+/**
+ * Schedule B → HL categories. Only these three are billable; rentals (002),
+ * banking/admin (005), other/contingency (006) and project-specific (007)
+ * are excluded because those Schedule B rows were left blank.
+ */
+const CATEGORY_CAPS: Array<{ code: string; cap: number | null }> = [
+  { code: "001", cap: 116_500 },
+  { code: "003", cap: 15_000 },
+  { code: "004", cap: 18_500 },
+];
+
 const MONTHLY = [
   "0.00",
   "0.00",
@@ -75,6 +86,8 @@ async function main() {
         { year: 2027, amount: 0 },
       ],
       notes: NOTES,
+      categoryCaps: CATEGORY_CAPS,
+      allowedCategoryCodes: CATEGORY_CAPS.map((c) => c.code),
     })
     .where(eq(fundingSources.id, existing.id));
 
@@ -92,6 +105,7 @@ async function main() {
   );
   console.log(`  yearly allocations: ${JSON.stringify(updated.yearlyAllocations)}`);
   console.log(`  monthly expected:   ${updated.monthlyExpected.join(", ")}`);
+  console.log(`  category caps:      ${JSON.stringify(updated.categoryCaps)}`);
 }
 
 main().catch((err) => {
