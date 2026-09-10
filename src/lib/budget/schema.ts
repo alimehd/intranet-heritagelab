@@ -25,23 +25,72 @@ export const categoryCapSchema = z.object({
 });
 export type CategoryCap = z.infer<typeof categoryCapSchema>;
 
-export const fundingSourceInputSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(2, "Name must be at least 2 characters.")
-    .max(120, "Name is too long."),
-  kind: z.enum(FUNDING_SOURCE_KINDS),
-  contractValue: z.coerce
-    .number()
-    .finite()
-    .min(0, "Contract value must be zero or positive.")
-    .max(100_000_000),
-  monthlyExpected: monthlyScheduleSchema,
-  categoryCaps: z.array(categoryCapSchema).max(20).default([]),
-  status: z.enum(FUNDING_SOURCE_STATUSES).default("active"),
-  notes: z.string().trim().max(2000).nullable().optional(),
+/** One year of a multi-year contract's allocation. */
+export const yearlyAllocationSchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  amount: z.coerce.number().finite().min(0).max(100_000_000),
 });
+export type YearlyAllocation = z.infer<typeof yearlyAllocationSchema>;
+
+const isoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
+
+export const fundingSourceInputSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(2, "Name must be at least 2 characters.")
+      .max(120, "Name is too long."),
+    kind: z.enum(FUNDING_SOURCE_KINDS),
+    contractValue: z.coerce
+      .number()
+      .finite()
+      .min(0, "Contract value must be zero or positive.")
+      .max(100_000_000),
+    monthlyExpected: monthlyScheduleSchema,
+    categoryCaps: z.array(categoryCapSchema).max(20).default([]),
+    status: z.enum(FUNDING_SOURCE_STATUSES).default("active"),
+    notes: z.string().trim().max(2000).nullable().optional(),
+    // Multi-year contract fields (all optional; empty = single-year).
+    contractStartDate: z.union([z.literal(""), isoDate]).nullable().optional(),
+    contractEndDate: z.union([z.literal(""), isoDate]).nullable().optional(),
+    contractTotalValue: z
+      .union([z.literal(""), z.coerce.number().finite().min(0).max(1_000_000_000)])
+      .nullable()
+      .optional(),
+    yearlyAllocations: z.array(yearlyAllocationSchema).max(20).default([]),
+  })
+  .superRefine((val, ctx) => {
+    // If both dates set, end must be >= start.
+    if (
+      val.contractStartDate &&
+      val.contractEndDate &&
+      val.contractStartDate !== "" &&
+      val.contractEndDate !== "" &&
+      val.contractEndDate < val.contractStartDate
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["contractEndDate"],
+        message: "End date must be on or after the start date.",
+      });
+    }
+    // Duplicate years in allocations aren't meaningful.
+    const seen = new Set<number>();
+    for (const a of val.yearlyAllocations) {
+      if (seen.has(a.year)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["yearlyAllocations"],
+          message: `Duplicate year ${a.year} in the yearly allocations.`,
+        });
+      }
+      seen.add(a.year);
+    }
+  });
 
 export type FundingSourceInput = z.infer<typeof fundingSourceInputSchema>;
 
@@ -63,8 +112,17 @@ export function parseFundingSourceForm(fd: FormData) {
     try {
       categoryCaps = JSON.parse(capsRaw);
     } catch {
-      // let Zod produce the field error
       categoryCaps = capsRaw;
+    }
+  }
+  // Yearly allocations similarly JSON-serialised: [{year, amount}, ...]
+  const yaRaw = String(fd.get("yearlyAllocations") ?? "").trim();
+  let yearlyAllocations: unknown = [];
+  if (yaRaw) {
+    try {
+      yearlyAllocations = JSON.parse(yaRaw);
+    } catch {
+      yearlyAllocations = yaRaw;
     }
   }
   const notesRaw = String(fd.get("notes") ?? "").trim();
@@ -77,6 +135,10 @@ export function parseFundingSourceForm(fd: FormData) {
     categoryCaps,
     status: fd.get("status") || "active",
     notes: notesRaw || null,
+    contractStartDate: (String(fd.get("contractStartDate") ?? "").trim()) || null,
+    contractEndDate: (String(fd.get("contractEndDate") ?? "").trim()) || null,
+    contractTotalValue: (String(fd.get("contractTotalValue") ?? "").trim()) || null,
+    yearlyAllocations,
   });
 }
 

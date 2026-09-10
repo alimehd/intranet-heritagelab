@@ -87,6 +87,20 @@ export async function upsertFundingSource(
         allowedCategoryCodes: input.categoryCaps.map((c) => c.code),
         status: input.status as FundingSourceStatus,
         notes: input.notes ?? null,
+        // Multi-year contract fields — empty string / null both mean "not set"
+        contractStartDate:
+          input.contractStartDate && input.contractStartDate !== ""
+            ? input.contractStartDate
+            : null,
+        contractEndDate:
+          input.contractEndDate && input.contractEndDate !== ""
+            ? input.contractEndDate
+            : null,
+        contractTotalValue:
+          input.contractTotalValue == null || input.contractTotalValue === ""
+            ? null
+            : Number(input.contractTotalValue).toFixed(2),
+        yearlyAllocations: input.yearlyAllocations,
       })
       .where(eq(fundingSources.id, id));
 
@@ -117,6 +131,19 @@ export async function upsertFundingSource(
         allowedCategoryCodes: input.categoryCaps.map((c) => c.code),
         status: input.status as FundingSourceStatus,
         notes: input.notes ?? null,
+        contractStartDate:
+          input.contractStartDate && input.contractStartDate !== ""
+            ? input.contractStartDate
+            : null,
+        contractEndDate:
+          input.contractEndDate && input.contractEndDate !== ""
+            ? input.contractEndDate
+            : null,
+        contractTotalValue:
+          input.contractTotalValue == null || input.contractTotalValue === ""
+            ? null
+            : Number(input.contractTotalValue).toFixed(2),
+        yearlyAllocations: input.yearlyAllocations,
       })
       .returning({ id: fundingSources.id });
 
@@ -184,6 +211,90 @@ export async function deleteFundingSource(
   revalidatePath(`/budget/${year || ""}/grants`);
   revalidatePath(`/budget/${year || ""}`);
   redirect(`/budget/${year}/grants?deleted=1`);
+}
+
+// -------------------- Bulk remap expenses to a funding source --------------------
+
+/**
+ * Set the funding source on every direct-expense bank txn, split, and paid
+ * ER line whose budget line matches `budgetLineId`. Used to fix historical
+ * data where the project/funder was baked into the budget-line code
+ * (VOICES-001, McGill-001, ...) instead of being tagged separately.
+ *
+ * By default only rows with NO current funding source are updated so it's
+ * a safe additive operation. Pass `overwrite=1` to also replace existing
+ * tags — the response reports the counts either way.
+ */
+export async function remapFundingSourceForBudgetLine(
+  _prev: ActionState | undefined,
+  formData: FormData,
+): Promise<
+  ActionState & {
+    counts?: {
+      bankUpdated: number;
+      splitUpdated: number;
+      erLineUpdated: number;
+    };
+  }
+> {
+  const guard = await requireAdmin();
+  if ("ok" in guard) return guard;
+
+  const fundingSourceId = String(formData.get("fundingSourceId") ?? "").trim();
+  const budgetLineId = String(formData.get("budgetLineId") ?? "").trim();
+  const overwrite = formData.get("overwrite") === "1";
+  const year = Number(formData.get("year") ?? "");
+  if (!fundingSourceId || !budgetLineId) {
+    return { ok: false, error: "Pick a funding source and a budget line." };
+  }
+
+  const [fs] = await db
+    .select()
+    .from(fundingSources)
+    .where(eq(fundingSources.id, fundingSourceId));
+  if (!fs) return { ok: false, error: "Funding source not found." };
+
+  // 1. Bank txns (direct_expense, matching budget line, without splits).
+  const bankWhere = overwrite
+    ? sql`${bankTransactions.budgetLineId} = ${budgetLineId} AND ${bankTransactions.classification} = 'direct_expense'`
+    : sql`${bankTransactions.budgetLineId} = ${budgetLineId} AND ${bankTransactions.classification} = 'direct_expense' AND ${bankTransactions.fundingSourceId} IS NULL`;
+  const bankResult = await db
+    .update(bankTransactions)
+    .set({ fundingSourceId })
+    .where(bankWhere)
+    .returning({ id: bankTransactions.id });
+
+  // 2. Splits — same idea, keyed on split.budget_line_id.
+  const splitWhere = overwrite
+    ? sql`${bankTransactionSplits.budgetLineId} = ${budgetLineId}`
+    : sql`${bankTransactionSplits.budgetLineId} = ${budgetLineId} AND ${bankTransactionSplits.fundingSourceId} IS NULL`;
+  const splitResult = await db
+    .update(bankTransactionSplits)
+    .set({ fundingSourceId })
+    .where(splitWhere)
+    .returning({ id: bankTransactionSplits.id });
+
+  // 3. ER lines on paid reports.
+  const erWhereBase = overwrite
+    ? sql`${expenseReportLines.budgetLineId} = ${budgetLineId}`
+    : sql`${expenseReportLines.budgetLineId} = ${budgetLineId} AND ${expenseReportLines.fundingSourceId} IS NULL`;
+  const erResult = await db
+    .update(expenseReportLines)
+    .set({ fundingSourceId })
+    .where(erWhereBase)
+    .returning({ id: expenseReportLines.id });
+
+  revalidatePath(`/budget/${year || ""}/grants/${fundingSourceId}`);
+  revalidatePath(`/budget/${year || ""}/expenses`);
+  revalidatePath(`/budget/${year || ""}`);
+  return {
+    ok: true,
+    counts: {
+      bankUpdated: bankResult.length,
+      splitUpdated: splitResult.length,
+      erLineUpdated: erResult.length,
+    },
+  };
 }
 
 // -------------------- Opening balance --------------------

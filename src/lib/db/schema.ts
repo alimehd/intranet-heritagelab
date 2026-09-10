@@ -270,6 +270,29 @@ export const fundingSources = pgTable(
      * A backfill script populates `categoryCaps` from this column.
      */
     allowedCategoryCodes: text("allowed_category_codes").array().notNull().default([]),
+    // ------ Multi-year contract fields (optional) ------
+    // When set, this funding source represents one year of a longer contract
+    // that spans `contractStartDate`..`contractEndDate`. `contractValue`
+    // (above) is still the amount allocated to THIS fiscal year;
+    // `contractTotalValue` and `yearlyAllocations` describe the whole thing.
+    // Left null on single-year grants — behaviour is unchanged.
+    /** First day of the whole contract (ISO yyyy-mm-dd). */
+    contractStartDate: text("contract_start_date"),
+    /** Last day of the whole contract (ISO yyyy-mm-dd). */
+    contractEndDate: text("contract_end_date"),
+    /** Total contract value across all years. Null = single-year (use `contractValue`). */
+    contractTotalValue: numeric("contract_total_value", { precision: 12, scale: 2 }),
+    /**
+     * Per-year allocation breakdown for multi-year contracts. Shape:
+     *   [{ year: 2025, amount: 80000 }, { year: 2026, amount: 60000 }, ...]
+     * Empty = single-year. Ali edits this on the funding source form; each
+     * entry can be pointed at by the year page to source the year's
+     * `contractValue` (a future refactor may drop the annual column entirely).
+     */
+    yearlyAllocations: jsonb("yearly_allocations")
+      .$type<Array<{ year: number; amount: number }>>()
+      .notNull()
+      .default([]),
     /**
      * Per-category spend caps for this funding source. Empty array = the
      * source is unrestricted (any category, no cap). One entry per allowed

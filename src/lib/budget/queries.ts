@@ -221,6 +221,88 @@ export async function getFundingSourceReceivedById(
  * ER reimbursement bank txn is classified as `er_reimbursement`, so its
  * debit isn't counted here — the ER's line items are counted instead.
  */
+/**
+ * Amount received / spent between two dates (inclusive), regardless of
+ * fiscal year. Used to compute multi-year contract totals for grants
+ * that straddle fiscal boundaries.
+ */
+export async function getFundingSourceReceivedInPeriod(
+  id: string,
+  startDate: string,
+  endDate: string,
+): Promise<number> {
+  const [row] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${bankTransactions.credit}), 0)`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.fundingSourceId, id),
+        eq(bankTransactions.classification, "grant_receipt"),
+        sql`${bankTransactions.txnDate} >= ${startDate}`,
+        sql`${bankTransactions.txnDate} <= ${endDate}`,
+      ),
+    );
+  return Number(row?.total ?? 0);
+}
+
+export async function getFundingSourceSpentInPeriod(
+  id: string,
+  startDate: string,
+  endDate: string,
+): Promise<number> {
+  const [directRow] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${bankTransactions.debit}), 0)`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.fundingSourceId, id),
+        eq(bankTransactions.classification, "direct_expense"),
+        sql`${bankTransactions.txnDate} >= ${startDate}`,
+        sql`${bankTransactions.txnDate} <= ${endDate}`,
+        sql`NOT EXISTS (SELECT 1 FROM ${bankTransactionSplits} WHERE ${bankTransactionSplits.bankTxnId} = ${bankTransactions.id})`,
+      ),
+    );
+  const [splitRow] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${bankTransactionSplits.amount}), 0)`,
+    })
+    .from(bankTransactionSplits)
+    .innerJoin(
+      bankTransactions,
+      eq(bankTransactions.id, bankTransactionSplits.bankTxnId),
+    )
+    .where(
+      and(
+        eq(bankTransactionSplits.fundingSourceId, id),
+        sql`${bankTransactions.txnDate} >= ${startDate}`,
+        sql`${bankTransactions.txnDate} <= ${endDate}`,
+      ),
+    );
+  const [erRow] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${expenseReportLines.cost}), 0)`,
+    })
+    .from(expenseReportLines)
+    .innerJoin(expenseReports, eq(expenseReports.id, expenseReportLines.reportId))
+    .where(
+      and(
+        eq(expenseReportLines.fundingSourceId, id),
+        eq(expenseReports.status, "paid"),
+        sql`${expenseReportLines.expenseDate} >= ${startDate}`,
+        sql`${expenseReportLines.expenseDate} <= ${endDate}`,
+      ),
+    );
+  return (
+    Number(directRow?.total ?? 0) +
+    Number(splitRow?.total ?? 0) +
+    Number(erRow?.total ?? 0)
+  );
+}
+
 export async function getFundingSourceSpentById(id: string): Promise<number> {
   // Direct bank debits tagged with this funding source, EXCLUDING those that
   // have splits (splits govern in that case and are summed below).

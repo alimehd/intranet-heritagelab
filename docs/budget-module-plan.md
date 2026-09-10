@@ -372,6 +372,21 @@ Each phase is independently shippable. Approval gate between each.
 - ✅ **Unclassified debits show in the Expenses ledger, grayed** (Phase
   5b — shipped). Everything on the bank statement is visible in one
   place; pending rows link straight to the classify page.
+- ✅ **Multi-year contracts + per-source expense drilldown** (Phase 5c —
+  shipped). Funding sources gain optional multi-year metadata (contract
+  start/end, contract total, per-year allocations as jsonb). The detail
+  page shows a year-by-year table (Year · Allocation · Received ·
+  Spent · Remaining) with `current` badge on the fiscal year in focus,
+  plus a contract-total roll-up computed via date-range queries
+  (`getFundingSourceSpentInPeriod`, `getFundingSourceReceivedInPeriod`)
+  that scope across all years the contract spans, not just the current
+  fiscal year. Below the schedule, the top 50 expenses drawing from
+  the source are listed inline with a "View all" link to the filtered
+  Expenses tab. Also adds a **bulk-tag action**: pick a budget line
+  and every direct expense / split / paid ER line on it gets tagged
+  with this funding source (with an optional "overwrite existing"
+  switch). Fixes the historical VOICES/McGill/... rows where the
+  project/funder was baked into the budget-line code.
   - `/budget/[year]/expenses` merges paid ER lines with `direct_expense` bank
     txns into one flat table (mirrors the "Expenses" sheet in `for-test.xlsx`).
   - Filters: month strip, category, budget line, funding source, source-type,

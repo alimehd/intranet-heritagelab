@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { TriangleAlert, X } from "lucide-react";
+import { CalendarRange, Plus, TriangleAlert, X } from "lucide-react";
 import { upsertFundingSource, type ActionState } from "@/lib/budget/actions";
 import {
   FUNDING_SOURCE_KINDS,
@@ -23,6 +23,11 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 type CapEntry = { code: string; cap: string /* dollar string, "" = no cap */ };
+type AllocEntry = { key: string; year: string; amount: string };
+
+function makeAllocKey() {
+  return `a_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 type Props = {
   year: number;
@@ -73,6 +78,39 @@ export function FundingSourceForm({
   const [contractValue, setContractValue] = useState<string>(
     existing ? Number(existing.contractValue).toString() : "",
   );
+
+  // ---- Multi-year contract state ----
+  const initialMultiYearOn = Boolean(
+    existing?.contractStartDate ||
+      existing?.contractEndDate ||
+      existing?.contractTotalValue ||
+      (existing?.yearlyAllocations && existing.yearlyAllocations.length > 0),
+  );
+  const [multiYearOn, setMultiYearOn] = useState(initialMultiYearOn);
+  const [contractStartDate, setContractStartDate] = useState(
+    existing?.contractStartDate ?? "",
+  );
+  const [contractEndDate, setContractEndDate] = useState(
+    existing?.contractEndDate ?? "",
+  );
+  const [contractTotalValue, setContractTotalValue] = useState(
+    existing?.contractTotalValue == null
+      ? ""
+      : String(Number(existing.contractTotalValue)),
+  );
+  const [allocations, setAllocations] = useState<AllocEntry[]>(() => {
+    if (existing?.yearlyAllocations && existing.yearlyAllocations.length > 0) {
+      return existing.yearlyAllocations
+        .slice()
+        .sort((a, b) => a.year - b.year)
+        .map((a) => ({
+          key: makeAllocKey(),
+          year: String(a.year),
+          amount: String(a.amount),
+        }));
+    }
+    return [];
+  });
 
   const [state, setState] = useState<ActionState | undefined>();
   const [pending, startTransition] = useTransition();
@@ -127,6 +165,43 @@ export function FundingSourceForm({
     setContractValue(scheduleTotal.toString());
   }
 
+  const yearlyAllocationsTotal = useMemo(
+    () =>
+      allocations.reduce((s, a) => {
+        const n = Number(a.amount);
+        return Number.isFinite(n) ? s + n : s;
+      }, 0),
+    [allocations],
+  );
+  const contractTotalNum = Number(contractTotalValue || 0);
+  const allocationsMismatch =
+    multiYearOn &&
+    contractTotalNum > 0 &&
+    allocations.length > 0 &&
+    Math.abs(yearlyAllocationsTotal - contractTotalNum) > 0.5;
+
+  function addAllocation() {
+    // Suggest the next year not yet present, defaulting to `year`.
+    const usedYears = new Set(allocations.map((a) => Number(a.year)));
+    let candidate = year;
+    while (usedYears.has(candidate)) candidate++;
+    setAllocations((prev) => [
+      ...prev,
+      { key: makeAllocKey(), year: String(candidate), amount: "" },
+    ]);
+  }
+  function updateAllocation(key: string, patch: Partial<AllocEntry>) {
+    setAllocations((prev) =>
+      prev.map((a) => (a.key === key ? { ...a, ...patch } : a)),
+    );
+  }
+  function removeAllocation(key: string) {
+    setAllocations((prev) => prev.filter((a) => a.key !== key));
+  }
+  function syncTotalFromAllocations() {
+    setContractTotalValue(yearlyAllocationsTotal.toString());
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setState(undefined);
@@ -135,6 +210,15 @@ export function FundingSourceForm({
       code: c.code,
       cap: c.cap === "" ? null : Number(c.cap),
     }));
+
+    // Only serialise multi-year fields when the toggle is on. Turning it
+    // off is how Ali clears the multi-year metadata for a source that was
+    // erroneously flagged multi-year.
+    const allocationsPayload = multiYearOn
+      ? allocations
+          .filter((a) => a.year !== "" && a.amount !== "")
+          .map((a) => ({ year: Number(a.year), amount: Number(a.amount) }))
+      : [];
 
     const fd = new FormData();
     if (existing) fd.append("id", existing.id);
@@ -147,6 +231,10 @@ export function FundingSourceForm({
     fd.append("notes", notes ?? "");
     fd.append("categoryCaps", JSON.stringify(capsPayload));
     monthly.forEach((v, i) => fd.append(`monthly_${i}`, v));
+    fd.append("contractStartDate", multiYearOn ? contractStartDate : "");
+    fd.append("contractEndDate", multiYearOn ? contractEndDate : "");
+    fd.append("contractTotalValue", multiYearOn ? contractTotalValue : "");
+    fd.append("yearlyAllocations", JSON.stringify(allocationsPayload));
 
     startTransition(async () => {
       const res = await upsertFundingSource(undefined, fd);
@@ -297,6 +385,193 @@ export function FundingSourceForm({
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="hl-card p-5">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-hl-ink">
+            <CalendarRange className="h-4 w-4 text-hl-green-600" />
+            Multi-year contract
+          </h2>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-hl-muted">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-hl-green-600"
+              checked={multiYearOn}
+              onChange={(e) => setMultiYearOn(e.target.checked)}
+              disabled={pending}
+            />
+            This grant spans multiple fiscal years
+          </label>
+        </div>
+        <p className="mt-1 text-xs text-hl-muted">
+          Leave off for single-year contracts. When on, record the full
+          contract period, total value, and per-year allocation so multi-year
+          grants (e.g. Secrétariat aux affaires Autochtones — $80K year 1
+          out of a $200K contract) can be tracked across fiscal boundaries.
+          The &ldquo;Contract value (annual)&rdquo; above still represents
+          this year&rsquo;s slice — the budget engine uses that number.
+        </p>
+
+        {multiYearOn ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <label className="hl-label" htmlFor="fs-cs">
+                  Contract start
+                </label>
+                <input
+                  id="fs-cs"
+                  type="date"
+                  className="hl-input"
+                  value={contractStartDate}
+                  onChange={(e) => setContractStartDate(e.target.value)}
+                  disabled={pending}
+                />
+                {fieldError("contractStartDate") ? (
+                  <p className="mt-1 text-xs text-red-700">
+                    {fieldError("contractStartDate")}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <label className="hl-label" htmlFor="fs-ce">
+                  Contract end
+                </label>
+                <input
+                  id="fs-ce"
+                  type="date"
+                  className="hl-input"
+                  value={contractEndDate}
+                  onChange={(e) => setContractEndDate(e.target.value)}
+                  disabled={pending}
+                />
+                {fieldError("contractEndDate") ? (
+                  <p className="mt-1 text-xs text-red-700">
+                    {fieldError("contractEndDate")}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <label className="hl-label" htmlFor="fs-ct">
+                  Contract total (all years)
+                </label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-hl-muted">
+                    $
+                  </span>
+                  <input
+                    id="fs-ct"
+                    inputMode="decimal"
+                    className="hl-input pl-6"
+                    value={contractTotalValue}
+                    onChange={(e) => setContractTotalValue(e.target.value)}
+                    placeholder="0.00"
+                    disabled={pending}
+                  />
+                </div>
+                {allocationsMismatch ? (
+                  <p className="mt-1 flex items-center gap-1 text-xs text-amber-700">
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                    Doesn&rsquo;t match sum of allocations ($
+                    {yearlyAllocationsTotal.toLocaleString("en-CA")}).{" "}
+                    <button
+                      type="button"
+                      onClick={syncTotalFromAllocations}
+                      className="ml-1 font-medium text-hl-green-700 underline-offset-2 hover:underline"
+                    >
+                      Sync
+                    </button>
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-baseline justify-between">
+                <label className="hl-label">Yearly allocations</label>
+                <span className="text-xs text-hl-muted">
+                  Sum{" "}
+                  <span className="ml-1 font-semibold tabular-nums text-hl-ink">
+                    ${yearlyAllocationsTotal.toLocaleString("en-CA")}
+                  </span>
+                </span>
+              </div>
+              {allocations.length === 0 ? (
+                <p className="text-xs text-hl-muted">
+                  No allocations yet. Add one per fiscal year covered by
+                  this contract.
+                </p>
+              ) : (
+                <div className="overflow-hidden rounded-md border border-hl-border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-hl-cream/60 text-xs uppercase tracking-wider text-hl-muted">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Year</th>
+                        <th className="px-3 py-2 text-right">Allocation</th>
+                        <th className="w-10 px-2 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allocations.map((a) => (
+                        <tr key={a.key} className="border-t border-hl-border">
+                          <td className="px-3 py-2">
+                            <input
+                              inputMode="numeric"
+                              className="hl-input w-24"
+                              value={a.year}
+                              onChange={(e) =>
+                                updateAllocation(a.key, { year: e.target.value })
+                              }
+                              disabled={pending}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="relative inline-block">
+                              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-hl-muted">
+                                $
+                              </span>
+                              <input
+                                inputMode="decimal"
+                                className="hl-input w-36 pl-5 text-right"
+                                value={a.amount}
+                                onChange={(e) =>
+                                  updateAllocation(a.key, {
+                                    amount: e.target.value,
+                                  })
+                                }
+                                disabled={pending}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-2 py-2">
+                            <button
+                              type="button"
+                              onClick={() => removeAllocation(a.key)}
+                              disabled={pending}
+                              className="rounded p-1 text-hl-muted hover:bg-red-50 hover:text-red-700"
+                              aria-label={`Remove year ${a.year}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={addAllocation}
+                disabled={pending}
+                className="hl-btn-ghost mt-2"
+              >
+                <Plus className="h-4 w-4" /> Add year
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="hl-card p-5">

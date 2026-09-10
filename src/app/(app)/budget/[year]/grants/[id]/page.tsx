@@ -1,16 +1,31 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { auth } from "@/auth";
-import { ArrowLeft, Pencil, Landmark } from "lucide-react";
+import {
+  ArrowLeft,
+  Banknote,
+  CalendarRange,
+  FileText,
+  Landmark,
+  ListChecks,
+  Pencil,
+  PenLine,
+  Split,
+} from "lucide-react";
 import { canEditBudget, canViewBudget } from "@/lib/budget/people";
 import {
+  getBudgetGrid,
   getFiscalYear,
   getFundingSourceById,
   getFundingSourceReceivedById,
+  getFundingSourceReceivedInPeriod,
   getFundingSourceSpentById,
+  getFundingSourceSpentInPeriod,
 } from "@/lib/budget/queries";
+import { getExpenseLedger } from "@/lib/budget/ledger";
 import { parseYearParam } from "../../../BudgetNav";
 import { DeleteFundingSourceForm } from "./DeleteFundingSourceForm";
+import { RemapForm } from "./RemapForm";
 
 export const metadata = { title: "Funding Source — Heritage Lab" };
 
@@ -45,9 +60,15 @@ export default async function FundingSourceDetailPage({
   const source = await getFundingSourceById(id);
   if (!source || !fiscalYear || source.fiscalYearId !== fiscalYear.id) notFound();
 
-  const [received, spent] = await Promise.all([
+  const [received, spent, grid, ledgerRows] = await Promise.all([
     getFundingSourceReceivedById(source.id),
     getFundingSourceSpentById(source.id),
+    getBudgetGrid(year),
+    // Top 50 recent expenses drawing from this source, current year.
+    getExpenseLedger(
+      { year, fundingSourceId: source.id, includeUnclassified: false },
+      50,
+    ),
   ]);
 
   const contract = Number(source.contractValue);
@@ -63,6 +84,63 @@ export default async function FundingSourceDetailPage({
           cap: null as number | null,
         }));
   const editable = canEditBudget(session?.user?.email);
+
+  // ---- Multi-year contract data ----
+  const isMultiYear =
+    !!source.contractStartDate ||
+    !!source.contractEndDate ||
+    source.contractTotalValue != null ||
+    (source.yearlyAllocations?.length ?? 0) > 0;
+
+  const yearlyAllocations = (source.yearlyAllocations ?? [])
+    .slice()
+    .sort((a, b) => a.year - b.year);
+
+  // Compute per-year spent/received for each declared allocation. Each
+  // year runs Jan 1 -> Dec 31 for HL (fiscal = calendar).
+  const perYearStats = isMultiYear
+    ? await Promise.all(
+        yearlyAllocations.map(async (a) => {
+          const start = `${a.year}-01-01`;
+          const end = `${a.year}-12-31`;
+          const [rec, sp] = await Promise.all([
+            getFundingSourceReceivedInPeriod(source.id, start, end),
+            getFundingSourceSpentInPeriod(source.id, start, end),
+          ]);
+          return { year: a.year, allocation: a.amount, received: rec, spent: sp };
+        }),
+      )
+    : [];
+
+  // Contract-total spent (across the whole contract period).
+  const contractTotal = source.contractTotalValue
+    ? Number(source.contractTotalValue)
+    : null;
+  const contractSpent =
+    isMultiYear && source.contractStartDate && source.contractEndDate
+      ? await getFundingSourceSpentInPeriod(
+          source.id,
+          source.contractStartDate,
+          source.contractEndDate,
+        )
+      : null;
+  const contractReceived =
+    isMultiYear && source.contractStartDate && source.contractEndDate
+      ? await getFundingSourceReceivedInPeriod(
+          source.id,
+          source.contractStartDate,
+          source.contractEndDate,
+        )
+      : null;
+
+  // Budget lines for the remap widget.
+  const budgetLineOptions =
+    grid?.categories.flatMap((c) =>
+      c.lines.map((l) => ({
+        id: l.id,
+        label: `${l.fullCode} · ${l.name} (${c.name})`,
+      })),
+    ) ?? [];
 
   return (
     <div className="space-y-6">
@@ -140,10 +218,102 @@ export default async function FundingSourceDetailPage({
         </p>
       </section>
 
+      {isMultiYear ? (
+        <section className="hl-card p-5">
+          <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-hl-ink">
+            <CalendarRange className="h-4 w-4 text-hl-green-600" />
+            Multi-year contract
+          </h2>
+          <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            <Stat
+              label="Contract period"
+              value={
+                source.contractStartDate && source.contractEndDate
+                  ? `${source.contractStartDate} → ${source.contractEndDate}`
+                  : source.contractStartDate ?? source.contractEndDate ?? "—"
+              }
+            />
+            <Stat
+              label="Contract total"
+              value={contractTotal != null ? formatCad(contractTotal) : "—"}
+            />
+            <Stat
+              label="Received (contract)"
+              value={contractReceived != null ? formatCad(contractReceived) : "—"}
+              emphasis="primary"
+            />
+            <Stat
+              label="Spent (contract)"
+              value={contractSpent != null ? formatCad(contractSpent) : "—"}
+              emphasis={
+                contractSpent != null &&
+                contractReceived != null &&
+                contractSpent > contractReceived
+                  ? "danger"
+                  : "default"
+              }
+            />
+          </div>
+
+          {yearlyAllocations.length > 0 ? (
+            <div className="mt-5 overflow-hidden rounded-md border border-hl-border">
+              <table className="w-full text-sm">
+                <thead className="bg-hl-cream/60 text-xs uppercase tracking-wider text-hl-muted">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Year</th>
+                    <th className="px-3 py-2 text-right">Allocation</th>
+                    <th className="px-3 py-2 text-right">Received</th>
+                    <th className="px-3 py-2 text-right">Spent</th>
+                    <th className="px-3 py-2 text-right">Remaining vs alloc</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {perYearStats.map((s) => {
+                    const remaining = s.allocation - s.spent;
+                    return (
+                      <tr key={s.year} className="border-t border-hl-border">
+                        <td className="px-3 py-2 font-medium text-hl-ink">
+                          {s.year}
+                          {s.year === year ? (
+                            <span className="ml-2 hl-badge bg-hl-green-50 text-hl-green-800 ring-1 ring-hl-green-200">
+                              current
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatCad(s.allocation)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-hl-green-700">
+                          {formatCad(s.received)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatCad(s.spent)}
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums ${
+                            remaining < 0 ? "text-red-700" : "text-hl-ink"
+                          }`}
+                        >
+                          {formatCad(remaining)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs text-hl-muted">
+              No per-year allocations set yet — edit this source to add them.
+            </p>
+          )}
+        </section>
+      ) : null}
+
       <section className="hl-card overflow-hidden">
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-hl-border px-5 py-3">
           <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-            Projected schedule
+            Projected schedule ({year})
           </h2>
           <div className="text-xs text-hl-muted">
             Schedule total{" "}
@@ -179,6 +349,121 @@ export default async function FundingSourceDetailPage({
           </table>
         </div>
       </section>
+
+      <section className="hl-card overflow-hidden">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-hl-border px-5 py-3">
+          <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-hl-ink">
+            <ListChecks className="h-4 w-4 text-hl-green-600" />
+            Expenses drawing from this source ({year})
+          </h2>
+          <Link
+            href={`/budget/${year}/expenses?funding=${source.id}`}
+            className="text-xs font-medium text-hl-green-700 hover:underline"
+          >
+            View all in Expenses tab →
+          </Link>
+        </div>
+        {ledgerRows.length === 0 ? (
+          <div className="p-5 text-sm text-hl-muted">
+            Nothing tagged to this source yet. Use the &ldquo;Tag existing
+            expenses&rdquo; widget below (or the classify page on individual
+            bank txns) to attach expenses.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="hl-table">
+              <thead>
+                <tr>
+                  <th className="text-left">Date</th>
+                  <th className="text-left">Description</th>
+                  <th className="text-left">Budget code</th>
+                  <th className="text-right">Cost</th>
+                  <th className="text-left">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledgerRows.map((r) => (
+                  <tr key={r.id}>
+                    <td className="tabular-nums">{r.date}</td>
+                    <td>{r.description}</td>
+                    <td className="text-hl-muted">
+                      <span className="font-medium text-hl-ink">
+                        {r.budgetLineCode ?? "—"}
+                      </span>
+                    </td>
+                    <td className="text-right font-medium tabular-nums">
+                      {formatCad(r.cost)}
+                    </td>
+                    <td className="text-xs">
+                      {r.source.kind === "er" ? (
+                        <Link
+                          href={`/budget/${year}/reports/${r.source.reportId}`}
+                          className="inline-flex items-center gap-1 text-hl-green-700 hover:underline"
+                        >
+                          <FileText className="h-3 w-3" />
+                          {r.source.reportNumber}
+                        </Link>
+                      ) : r.source.kind === "split" ? (
+                        <Link
+                          href={`/budget/${year}/bank/${r.source.txnId}`}
+                          className="inline-flex items-center gap-1 text-hl-green-700 hover:underline"
+                        >
+                          <Split className="h-3 w-3" />
+                          Split
+                        </Link>
+                      ) : r.source.kind === "manual" ? (
+                        <Link
+                          href={`/budget/${year}/bank/${r.source.txnId}`}
+                          className="inline-flex items-center gap-1 text-hl-muted hover:text-hl-ink hover:underline"
+                        >
+                          <PenLine className="h-3 w-3" />
+                          Manual
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/budget/${year}/bank/${r.source.kind === "unclassified" ? r.source.txnId : r.source.txnId}`}
+                          className="inline-flex items-center gap-1 text-hl-green-700 hover:underline"
+                        >
+                          <Banknote className="h-3 w-3" />
+                          Bank
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {ledgerRows.length >= 50 ? (
+              <div className="border-t border-hl-border px-5 py-3 text-xs text-hl-muted">
+                Showing the 50 most-recent — click &ldquo;View all&rdquo; above
+                for the full list with filters + CSV export.
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
+
+      {editable ? (
+        <section className="hl-card p-5">
+          <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+            Tag existing expenses to this source
+          </h2>
+          <p className="mt-1 text-xs text-hl-muted">
+            Bulk-tag every direct expense, split allocation, and paid ER line
+            on a given budget line with &ldquo;{source.name}&rdquo;. Handy
+            when the project/funder was previously baked into the budget-line
+            code (VOICES-001, McGill-001, …) instead of tracked separately.
+          </p>
+          <div className="mt-4">
+            <RemapForm
+              year={year}
+              fundingSourceId={source.id}
+              fundingSourceName={source.name}
+              budgetLineOptions={budgetLineOptions}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <section className="hl-card p-5">
         <h2 className="text-base font-semibold tracking-tight text-hl-ink">
