@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "verify:leave": "tsx scripts/verify-leave.ts",
-    "seed:budget": "tsx scripts/seed-budget.ts"
+    "seed:budget": "tsx scripts/seed-budget.ts",
+    "import:td-csv": "tsx scripts/import-td-csv.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",

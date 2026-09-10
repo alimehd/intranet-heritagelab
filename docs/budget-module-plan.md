@@ -352,7 +352,18 @@ Each phase is independently shippable. Approval gate between each.
 - Budget vs Actual with drill-down.
 - Grant coverage with drill-down.
 - Reconciliation health tile.
-- Unified expense ledger + CSV export.
+- ✅ **Unified expense ledger + CSV export** (Phase 5a — shipped).
+  - `/budget/[year]/expenses` merges paid ER lines with `direct_expense` bank
+    txns into one flat table (mirrors the "Expenses" sheet in `for-test.xlsx`).
+  - Filters: month strip, category, budget line, funding source, source-type,
+    description search. All state lives in the URL.
+  - `GET /budget/[year]/expenses/export` returns a CSV that honours the same
+    filter set, with columns Date · Description · Budget code · Budget line ·
+    Category · Funding source · Cost · Source · Source detail.
+  - `scripts/import-td-csv.ts` (npm run `import:td-csv`) imports a TD account
+    activity CSV from the CLI, reusing the same parser, dedupe hash, and
+    auto-classifier as the web upload path. Initial cutover: 657 rows
+    imported, 224 auto-classified.
 
 ### Phase 6 — historical seed
 - `scripts/seed-budget.ts`.
