@@ -60,16 +60,25 @@ export default async function FundingSourceDetailPage({
   const source = await getFundingSourceById(id);
   if (!source || !fiscalYear || source.fiscalYearId !== fiscalYear.id) notFound();
 
-  const [received, spent, grid, ledgerRows] = await Promise.all([
-    getFundingSourceReceivedById(source.id),
-    getFundingSourceSpentById(source.id),
-    getBudgetGrid(year),
-    // Top 50 recent expenses drawing from this source, current year.
-    getExpenseLedger(
-      { year, fundingSourceId: source.id, includeUnclassified: false },
-      50,
-    ),
-  ]);
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+
+  const [received, spent, receivedAllTime, spentAllTime, grid, ledgerRows] =
+    await Promise.all([
+      // "YTD" means the fiscal year being viewed — scope to that period, not
+      // all-time, so this matches the itemized list below and doesn't lump
+      // in deposits/expenses from other years under one funding source.
+      getFundingSourceReceivedInPeriod(source.id, yearStart, yearEnd),
+      getFundingSourceSpentInPeriod(source.id, yearStart, yearEnd),
+      getFundingSourceReceivedById(source.id),
+      getFundingSourceSpentById(source.id),
+      getBudgetGrid(year),
+      // Top 50 recent expenses drawing from this source, current year.
+      getExpenseLedger(
+        { year, fundingSourceId: source.id, includeUnclassified: false },
+        50,
+      ),
+    ]);
 
   const contract = Number(source.contractValue);
   const monthly = (source.monthlyExpected ?? []).map(Number);
@@ -191,7 +200,7 @@ export default async function FundingSourceDetailPage({
         <dl className="mt-4 grid gap-3 sm:grid-cols-4">
           <Stat label="Contract value" value={formatCad(contract)} />
           <Stat
-            label="Received YTD"
+            label={`Received in ${year}`}
             value={formatCad(received)}
             emphasis="primary"
           />
@@ -200,14 +209,15 @@ export default async function FundingSourceDetailPage({
             value={formatCad(Math.max(0, contract - received))}
           />
           <Stat
-            label="Spent YTD"
+            label={`Spent in ${year}`}
             value={formatCad(spent)}
             emphasis={spent > received ? "danger" : "default"}
           />
         </dl>
         <p className="mt-3 text-xs text-hl-muted">
-          Received &amp; spent come from bank transactions tagged with this
-          funding source. If the numbers look low, check{" "}
+          Received &amp; spent come from bank transactions (and paid ER
+          lines) tagged with this funding source, scoped to {year}. If the
+          numbers look low, check{" "}
           <Link
             href={`/budget/${year}/bank?classification=unclassified`}
             className="font-medium text-hl-green-700 hover:underline"
@@ -216,6 +226,15 @@ export default async function FundingSourceDetailPage({
           </Link>
           .
         </p>
+        {receivedAllTime !== received || spentAllTime !== spent ? (
+          <p className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
+            This source also has activity outside {year}:{" "}
+            <strong>{formatCad(receivedAllTime)}</strong> received and{" "}
+            <strong>{formatCad(spentAllTime)}</strong> spent all-time. If
+            that&rsquo;s a separate grant/contract phase, consider giving it
+            its own funding source instead of sharing this one across years.
+          </p>
+        ) : null}
       </section>
 
       {isMultiYear ? (
