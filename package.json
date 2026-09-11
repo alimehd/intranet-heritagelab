@@ -20,7 +20,8 @@
     "update:esuma": "tsx scripts/update-esuma-contract.ts",
     "update:fia-iv": "tsx scripts/update-fia-iv-grant.ts",
     "inspect:pme": "tsx scripts/inspect-pme.ts",
-    "update:pme": "tsx scripts/update-pme-fes.ts"
+    "update:pme": "tsx scripts/update-pme-fes.ts",
+    "split:2025": "tsx scripts/split-2025-fiscal-year.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",
