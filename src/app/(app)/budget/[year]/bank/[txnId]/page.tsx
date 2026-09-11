@@ -11,10 +11,10 @@ import {
   getFiscalYear,
   getFundingSources,
   getSimilarTxnStats,
+  getBankSplits,
 } from "@/lib/budget/queries";
 import { listUnpaidApprovedReports } from "@/lib/budget/er-queries";
 import { CLASSIFICATION_LABELS } from "@/lib/budget/classify";
-import { getBankSplits } from "@/lib/budget/bank-actions";
 import type { BankTxnClassification } from "@/lib/db/schema";
 import { parseYearParam } from "../../../BudgetNav";
 import { ClassifyForm } from "./ClassifyForm";

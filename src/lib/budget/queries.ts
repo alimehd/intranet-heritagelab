@@ -462,11 +462,6 @@ export async function getBankTransactionById(
   return row ?? null;
 }
 
-/** Postgres expression: collapsed, uppercased description used as the payee key. */
-function payeeKeyExpr() {
-  return sql`regexp_replace(upper(trim(${bankTransactions.description})), '\\s+', ' ', 'g')`;
-}
-
 /**
  * Count bank rows that share this txn's payee key (normalized description)
  * and the same debit/credit direction. Used to offer "classify all of this
@@ -482,12 +477,12 @@ export async function getSimilarTxnStats(txn: {
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
-      unclassified: sql<number>`count(*) FILTER (WHERE ${bankTransactions.classification} = 'unclassified')::int`,
+      unclassified: sql<number>`count(*) FILTER (WHERE classification = 'unclassified')::int`,
     })
     .from(bankTransactions)
     .where(
       and(
-        sql`${payeeKeyExpr()} = ${key}`,
+        sql`upper(trim(regexp_replace(${bankTransactions.description}, '[[:space:]]+', ' ', 'g'))) = ${key}`,
         isDebit
           ? sql`${bankTransactions.debit} IS NOT NULL`
           : sql`${bankTransactions.credit} IS NOT NULL`,
@@ -501,6 +496,22 @@ export async function getSimilarTxnStats(txn: {
     unclassified: row?.unclassified ?? 0,
     siblingCount: Math.max(0, total - 1),
   };
+}
+
+/** Splits for a bank txn — used by the classify page to seed the form. */
+export async function getBankSplits(txnId: string) {
+  return db
+    .select({
+      id: bankTransactionSplits.id,
+      budgetLineId: bankTransactionSplits.budgetLineId,
+      fundingSourceId: bankTransactionSplits.fundingSourceId,
+      amount: bankTransactionSplits.amount,
+      description: bankTransactionSplits.description,
+      sortOrder: bankTransactionSplits.sortOrder,
+    })
+    .from(bankTransactionSplits)
+    .where(eq(bankTransactionSplits.bankTxnId, txnId))
+    .orderBy(bankTransactionSplits.sortOrder);
 }
 
 /** Rows that need human review, per classification breakdown. */

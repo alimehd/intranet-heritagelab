@@ -836,22 +836,6 @@ async function copySplitsToSimilar(opts: {
   return count;
 }
 
-/** Fetch the splits for a bank txn — used by the detail page to seed the form. */
-export async function getBankSplits(txnId: string) {
-  return db
-    .select({
-      id: bankTransactionSplits.id,
-      budgetLineId: bankTransactionSplits.budgetLineId,
-      fundingSourceId: bankTransactionSplits.fundingSourceId,
-      amount: bankTransactionSplits.amount,
-      description: bankTransactionSplits.description,
-      sortOrder: bankTransactionSplits.sortOrder,
-    })
-    .from(bankTransactionSplits)
-    .where(eq(bankTransactionSplits.bankTxnId, txnId))
-    .orderBy(bankTransactionSplits.sortOrder);
-}
-
 // -------------------- Manual entry edit / delete --------------------
 
 export type ManualEntryState = {
