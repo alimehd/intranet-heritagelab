@@ -673,16 +673,20 @@ export async function saveBankSplits(
     .from(bankTransactions)
     .where(eq(bankTransactions.id, txnId));
   if (!txn) return { ok: false, error: "Transaction not found." };
-  if (splits.length > 0 && txn.classification !== "direct_expense") {
-    return {
-      ok: false,
-      error: "Splits only make sense on direct-expense rows. Classify first.",
-    };
-  }
   if (splits.length > 0 && !txn.debit) {
     return {
       ok: false,
       error: "Splits only apply to debit rows (money out).",
+    };
+  }
+  if (
+    splits.length > 0 &&
+    txn.classification !== "direct_expense" &&
+    txn.classification !== "unclassified"
+  ) {
+    return {
+      ok: false,
+      error: "Splits only make sense on direct-expense (or still-unclassified) rows.",
     };
   }
 
@@ -721,7 +725,13 @@ export async function saveBankSplits(
       // never double-count.
       await tx
         .update(bankTransactions)
-        .set({ budgetLineId: null, fundingSourceId: null })
+        .set({
+          classification: "direct_expense",
+          budgetLineId: null,
+          fundingSourceId: null,
+          classifiedBy: email,
+          classifiedAt: new Date(),
+        })
         .where(eq(bankTransactions.id, txnId));
     }
   });

@@ -17,6 +17,7 @@ import {
   CLASSIFICATION_LABELS,
 } from "@/lib/budget/classify";
 import type { SimilarTxnStats } from "@/lib/budget/payee";
+import { SplitsForm } from "./SplitsForm";
 
 type TxnState = {
   id: string;
@@ -42,6 +43,9 @@ export function ClassifyForm({
   erOptions,
   erNotShownCount,
   similar,
+  txnDebit,
+  parentDescription,
+  existingSplits,
 }: {
   year: number;
   txn: TxnState;
@@ -51,6 +55,15 @@ export function ClassifyForm({
   erOptions: Option[];
   erNotShownCount: number;
   similar: SimilarTxnStats;
+  txnDebit: number | null;
+  parentDescription: string;
+  existingSplits: Array<{
+    id: string;
+    budgetLineId: string;
+    fundingSourceId: string | null;
+    amount: string;
+    description: string | null;
+  }>;
 }) {
   const router = useRouter();
   const [classification, setClassification] = useState<BankTxnClassification>(
@@ -184,7 +197,13 @@ export function ClassifyForm({
                 </select>
                 {fieldError("budgetLineId") ? (
                   <p className="mt-1 text-xs text-red-700">{fieldError("budgetLineId")}</p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-xs text-hl-muted">
+                    One line for the whole debit — or skip this and use{" "}
+                    <strong>Split across budget lines</strong> below (%, e.g.
+                    Nethris salary).
+                  </p>
+                )}
               </div>
             ) : null}
 
@@ -310,6 +329,18 @@ export function ClassifyForm({
           </div>
         </section>
       )}
+
+      {classification === "direct_expense" && txnDebit ? (
+        <SplitsForm
+          txnId={txn.id}
+          txnDebit={txnDebit}
+          parentDescription={parentDescription}
+          budgetLineOptions={budgetLineOptions}
+          fundingOptions={fundingOptions}
+          existing={existingSplits}
+          similar={similar}
+        />
+      ) : null}
 
       <section className="hl-card p-5">
         <label htmlFor="note" className="hl-label">

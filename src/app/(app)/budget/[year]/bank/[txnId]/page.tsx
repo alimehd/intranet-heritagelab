@@ -18,7 +18,6 @@ import { getBankSplits } from "@/lib/budget/bank-actions";
 import type { BankTxnClassification } from "@/lib/db/schema";
 import { parseYearParam } from "../../../BudgetNav";
 import { ClassifyForm } from "./ClassifyForm";
-import { SplitsForm } from "./SplitsForm";
 import { ManualEntryForm } from "./ManualEntryForm";
 
 export const metadata = { title: "Classify Transaction — Heritage Lab" };
@@ -181,33 +180,17 @@ export default async function ClassifyPage({
               erOptions={erOptions}
               erNotShownCount={otherUnpaidErs}
               similar={similar}
-            />
-          )}
-
-          {/*
-            Splits only make sense on direct_expense debits and only on real
-            bank rows (manual entries are simple one-line ledger entries — if
-            Ali wants two, he creates two).
-          */}
-          {!isManual &&
-          txn.classification === "direct_expense" &&
-          txn.debit ? (
-            <SplitsForm
-              txnId={txn.id}
-              txnDebit={Number(txn.debit)}
+              txnDebit={txn.debit ? Number(txn.debit) : null}
               parentDescription={txn.description}
-              budgetLineOptions={budgetLineOptions}
-              fundingOptions={fundingOptions}
-              existing={splits.map((s) => ({
+              existingSplits={splits.map((s) => ({
                 id: s.id,
                 budgetLineId: s.budgetLineId,
                 fundingSourceId: s.fundingSourceId,
                 amount: s.amount,
                 description: s.description,
               }))}
-              similar={similar}
             />
-          ) : null}
+          )}
         </>
       ) : (
         <div className="hl-card p-5 text-sm text-hl-muted">
