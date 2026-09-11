@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Check } from "lucide-react";
 import {
@@ -15,6 +16,7 @@ import {
   CLASSIFICATION_HELP,
   CLASSIFICATION_LABELS,
 } from "@/lib/budget/classify";
+import type { SimilarTxnStats } from "@/lib/budget/payee";
 
 type TxnState = {
   id: string;
@@ -39,6 +41,7 @@ export function ClassifyForm({
   reversalOptions,
   erOptions,
   erNotShownCount,
+  similar,
 }: {
   year: number;
   txn: TxnState;
@@ -47,7 +50,9 @@ export function ClassifyForm({
   reversalOptions: Option[];
   erOptions: Option[];
   erNotShownCount: number;
+  similar: SimilarTxnStats;
 }) {
+  const router = useRouter();
   const [classification, setClassification] = useState<BankTxnClassification>(
     txn.classification,
   );
@@ -58,6 +63,8 @@ export function ClassifyForm({
     txn.expenseReportId ?? "",
   );
   const [note, setNote] = useState(txn.note);
+  const [applySimilar, setApplySimilar] = useState(false);
+  const [overwriteSimilar, setOverwriteSimilar] = useState(false);
 
   const [state, setState] = useState<ClassifyState | undefined>();
   const [pending, startTransition] = useTransition();
@@ -78,9 +85,12 @@ export function ClassifyForm({
     if (reversalOfTxnId) fd.append("reversalOfTxnId", reversalOfTxnId);
     if (expenseReportId) fd.append("expenseReportId", expenseReportId);
     if (note) fd.append("note", note);
+    if (applySimilar) fd.append("applySimilar", "1");
+    if (overwriteSimilar) fd.append("overwriteSimilar", "1");
     startTransition(async () => {
       const res = await classifyBankTransaction(undefined, fd);
       setState(res);
+      if (res.ok) router.refresh();
     });
   }
 
@@ -91,6 +101,10 @@ export function ClassifyForm({
     classification === "grant_receipt" || classification === "direct_expense";
   const needsReversal = classification === "reversal";
   const needsEr = classification === "er_reimbursement";
+  const canApplySimilar =
+    similar.siblingCount > 0 &&
+    classification !== "er_reimbursement" &&
+    classification !== "reversal";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -149,7 +163,10 @@ export function ClassifyForm({
             {needsLine ? (
               <div>
                 <label htmlFor="line" className="hl-label">
-                  Budget line
+                  Budget line{" "}
+                  <span className="font-normal text-hl-muted">
+                    (optional — leave blank to split the debit below)
+                  </span>
                 </label>
                 <select
                   id="line"
@@ -309,6 +326,45 @@ export function ClassifyForm({
         />
       </section>
 
+      {canApplySimilar ? (
+        <section className="hl-card p-5">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-hl-green-600"
+              checked={applySimilar}
+              onChange={(e) => setApplySimilar(e.target.checked)}
+              disabled={pending}
+            />
+            <span>
+              <span className="text-sm font-medium text-hl-ink">
+                Apply to all {similar.siblingCount} other &ldquo;{similar.label}
+                &rdquo; transaction{similar.siblingCount === 1 ? "" : "s"}
+              </span>
+              <span className="mt-0.5 block text-xs text-hl-muted">
+                Same payee description, same direction.
+                {similar.unclassified > 0
+                  ? ` ${similar.unclassified} still unclassified.`
+                  : " All of them already have a classification."}{" "}
+                Future imports of this payee will pick up the same tagging.
+              </span>
+            </span>
+          </label>
+          {applySimilar ? (
+            <label className="mt-3 ml-7 flex cursor-pointer items-center gap-2 text-xs text-hl-muted">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-hl-green-600"
+                checked={overwriteSimilar}
+                onChange={(e) => setOverwriteSimilar(e.target.checked)}
+                disabled={pending}
+              />
+              Also overwrite ones that are already classified
+            </label>
+          ) : null}
+        </section>
+      ) : null}
+
       {state?.error ? (
         <div className="hl-card border-red-200 bg-red-50/60 p-4 text-sm text-red-800">
           {state.error}
@@ -316,7 +372,10 @@ export function ClassifyForm({
       ) : null}
       {state?.ok ? (
         <div className="hl-card border-hl-green-200 bg-hl-green-50/50 p-4 text-sm text-hl-green-800">
-          <Check className="mr-1 inline h-4 w-4" /> Saved.
+          <Check className="mr-1 inline h-4 w-4" /> Saved
+          {state.appliedCount
+            ? ` — also classified ${state.appliedCount} similar transaction${state.appliedCount === 1 ? "" : "s"}.`
+            : "."}
         </div>
       ) : null}
 

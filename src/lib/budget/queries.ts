@@ -17,6 +17,7 @@ import {
   type BudgetFiscalYear,
   type FundingSource,
 } from "@/lib/db/schema";
+import { normalizePayeeDescription, type SimilarTxnStats } from "@/lib/budget/payee";
 
 // -------------------- Types --------------------
 
@@ -459,6 +460,47 @@ export async function getBankTransactionById(
     .from(bankTransactions)
     .where(eq(bankTransactions.id, id));
   return row ?? null;
+}
+
+/** Postgres expression: collapsed, uppercased description used as the payee key. */
+function payeeKeyExpr() {
+  return sql`regexp_replace(upper(trim(${bankTransactions.description})), '\\s+', ' ', 'g')`;
+}
+
+/**
+ * Count bank rows that share this txn's payee key (normalized description)
+ * and the same debit/credit direction. Used to offer "classify all of this
+ * sort" on the classify page.
+ */
+export async function getSimilarTxnStats(txn: {
+  description: string;
+  debit: string | null;
+  credit: string | null;
+}): Promise<SimilarTxnStats> {
+  const key = normalizePayeeDescription(txn.description);
+  const isDebit = !!txn.debit;
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      unclassified: sql<number>`count(*) FILTER (WHERE ${bankTransactions.classification} = 'unclassified')::int`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        sql`${payeeKeyExpr()} = ${key}`,
+        isDebit
+          ? sql`${bankTransactions.debit} IS NOT NULL`
+          : sql`${bankTransactions.credit} IS NOT NULL`,
+      ),
+    );
+  const total = row?.total ?? 0;
+  return {
+    key,
+    label: key,
+    total,
+    unclassified: row?.unclassified ?? 0,
+    siblingCount: Math.max(0, total - 1),
+  };
 }
 
 /** Rows that need human review, per classification breakdown. */

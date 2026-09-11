@@ -10,6 +10,7 @@ import {
   getBudgetGrid,
   getFiscalYear,
   getFundingSources,
+  getSimilarTxnStats,
 } from "@/lib/budget/queries";
 import { listUnpaidApprovedReports } from "@/lib/budget/er-queries";
 import { CLASSIFICATION_LABELS } from "@/lib/budget/classify";
@@ -40,23 +41,29 @@ export default async function ClassifyPage({
   const editable = canEditBudget(session?.user?.email);
 
   const fiscalYear = await getFiscalYear(year);
-  const [grid, accounts, fundingList, reversalCandidates, unpaidErs, splits] =
-    await Promise.all([
-      fiscalYear ? getBudgetGrid(year) : Promise.resolve(null),
-      getBankAccounts(),
-      fiscalYear ? getFundingSources(fiscalYear.id) : Promise.resolve([]),
-      txn.credit
-        ? findReversalCandidates({
-            accountId: txn.accountId,
-            credit: txn.credit,
-            txnDate: txn.txnDate,
-          })
-        : Promise.resolve([]),
-      // Restrict to approved-but-unpaid ERs — plus the ER already linked to
-      // this txn (if any) so the current selection survives.
-      listUnpaidApprovedReports(),
-      getBankSplits(txn.id),
-    ]);
+  const [
+    grid,
+    accounts,
+    fundingList,
+    reversalCandidates,
+    unpaidErs,
+    splits,
+    similar,
+  ] = await Promise.all([
+    fiscalYear ? getBudgetGrid(year) : Promise.resolve(null),
+    getBankAccounts(),
+    fiscalYear ? getFundingSources(fiscalYear.id) : Promise.resolve([]),
+    txn.credit
+      ? findReversalCandidates({
+          accountId: txn.accountId,
+          credit: txn.credit,
+          txnDate: txn.txnDate,
+        })
+      : Promise.resolve([]),
+    listUnpaidApprovedReports(),
+    getBankSplits(txn.id),
+    getSimilarTxnStats(txn),
+  ]);
 
   const accountName = accounts.find((a) => a.id === txn.accountId)?.name ?? "—";
   const isManual = accountName === "Manual entries (pre-import)";
@@ -173,6 +180,7 @@ export default async function ClassifyPage({
               reversalOptions={reversalOptions}
               erOptions={erOptions}
               erNotShownCount={otherUnpaidErs}
+              similar={similar}
             />
           )}
 
@@ -197,6 +205,7 @@ export default async function ClassifyPage({
                 amount: s.amount,
                 description: s.description,
               }))}
+              similar={similar}
             />
           ) : null}
         </>

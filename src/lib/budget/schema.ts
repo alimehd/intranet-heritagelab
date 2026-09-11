@@ -155,13 +155,6 @@ export const bankClassificationInputSchema = z
     note: z.string().trim().max(500).nullable().optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.classification === "direct_expense" && !val.budgetLineId) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["budgetLineId"],
-        message: "Direct expenses need a budget line.",
-      });
-    }
     if (val.classification === "grant_receipt" && !val.fundingSourceId) {
       ctx.addIssue({
         code: "custom",

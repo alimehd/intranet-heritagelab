@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/schema";
 import { canEditBudget } from "@/lib/budget/people";
 import { autoClassify } from "@/lib/budget/classify";
+import { amountsFromPercents, normalizePayeeDescription, percentFromAmount } from "@/lib/budget/payee";
 import {
   bankAccountInputSchema,
   bankClassificationInputSchema,
@@ -22,9 +23,9 @@ import {
   type BankTransactionSplitInput,
 } from "@/lib/budget/schema";
 import { createHash } from "node:crypto";
+import { parseTdCsv, parsedPeriod } from "@/lib/budget/csv";
 
 const MANUAL_ACCOUNT_NAME = "Manual entries (pre-import)";
-import { parseTdCsv, parsedPeriod } from "@/lib/budget/csv";
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5 MB — statement CSVs are tiny
 
@@ -182,6 +183,7 @@ export async function importBankCsv(
       };
     });
     await db.insert(bankTransactions).values(values);
+    autoTagged += await applySiblingPayeeTemplates(imp.id);
   }
 
   // Best guess at the target year for the redirect: use the period's start.
@@ -214,12 +216,159 @@ export async function importBankCsv(
   };
 }
 
+const BULK_SKIP = new Set(["er_reimbursement", "reversal"]);
+
+function payeeKeyExpr() {
+  return sql`regexp_replace(upper(trim(${bankTransactions.description})), '\\s+', ' ', 'g')`;
+}
+
+async function listSimilarTxnIds(
+  txn: {
+    description: string;
+    debit: string | null;
+    credit: string | null;
+  },
+  opts: { onlyUnclassified: boolean; excludeId: string },
+): Promise<string[]> {
+  const key = normalizePayeeDescription(txn.description);
+  const isDebit = !!txn.debit;
+  const clauses = [
+    sql`${payeeKeyExpr()} = ${key}`,
+    isDebit
+      ? sql`${bankTransactions.debit} IS NOT NULL`
+      : sql`${bankTransactions.credit} IS NOT NULL`,
+    sql`${bankTransactions.id} <> ${opts.excludeId}`,
+  ];
+  if (opts.onlyUnclassified) {
+    clauses.push(eq(bankTransactions.classification, "unclassified"));
+  }
+  const rows = await db
+    .select({ id: bankTransactions.id })
+    .from(bankTransactions)
+    .where(and(...clauses));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * For unclassified rows in this import, copy classification + budget line
+ * + funding source + percentage splits from the most recently classified
+ * sibling with the same payee key (e.g. every new `DT NETHRIS PAIE MSP`
+ * inherits the last Nethris payroll tagging).
+ */
+async function applySiblingPayeeTemplates(importId: string): Promise<number> {
+  const unclassified = await db
+    .select({
+      id: bankTransactions.id,
+      description: bankTransactions.description,
+      debit: bankTransactions.debit,
+      credit: bankTransactions.credit,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.importId, importId),
+        eq(bankTransactions.classification, "unclassified"),
+      ),
+    );
+  if (unclassified.length === 0) return 0;
+
+  const templates = await db
+    .select({
+      id: bankTransactions.id,
+      description: bankTransactions.description,
+      debit: bankTransactions.debit,
+      classification: bankTransactions.classification,
+      budgetLineId: bankTransactions.budgetLineId,
+      fundingSourceId: bankTransactions.fundingSourceId,
+      classifiedAt: bankTransactions.classifiedAt,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        sql`${bankTransactions.classification} NOT IN ('unclassified', 'er_reimbursement', 'reversal')`,
+      ),
+    );
+
+  type Template = (typeof templates)[number];
+  const byKey = new Map<string, Template>();
+  const sorted = templates
+    .slice()
+    .sort((a, b) => {
+      const at = a.classifiedAt ? new Date(a.classifiedAt).getTime() : 0;
+      const bt = b.classifiedAt ? new Date(b.classifiedAt).getTime() : 0;
+      return bt - at;
+    });
+  for (const t of sorted) {
+    const k = `${normalizePayeeDescription(t.description)}|${t.debit ? "d" : "c"}`;
+    if (!byKey.has(k)) byKey.set(k, t);
+  }
+  if (byKey.size === 0) return 0;
+
+  const templateIds = [...new Set([...byKey.values()].map((t) => t.id))];
+  const allSplits = await db
+    .select()
+    .from(bankTransactionSplits)
+    .where(inArray(bankTransactionSplits.bankTxnId, templateIds));
+  const splitsByParent = new Map<string, typeof allSplits>();
+  for (const s of allSplits) {
+    const list = splitsByParent.get(s.bankTxnId) ?? [];
+    list.push(s);
+    splitsByParent.set(s.bankTxnId, list);
+  }
+
+  let tagged = 0;
+  const now = new Date();
+  for (const row of unclassified) {
+    const k = `${normalizePayeeDescription(row.description)}|${row.debit ? "d" : "c"}`;
+    const tmpl = byKey.get(k);
+    if (!tmpl) continue;
+
+    const parentSplits = (splitsByParent.get(tmpl.id) ?? [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const tmplDebit = Number(tmpl.debit ?? 0);
+    const rowDebit = Number(row.debit ?? 0);
+
+    await db
+      .update(bankTransactions)
+      .set({
+        classification: tmpl.classification,
+        budgetLineId: parentSplits.length > 0 ? null : tmpl.budgetLineId,
+        fundingSourceId: parentSplits.length > 0 ? null : tmpl.fundingSourceId,
+        classifiedBy: "auto",
+        classifiedAt: now,
+        note: `auto: same as other ${normalizePayeeDescription(row.description)} rows`,
+      })
+      .where(eq(bankTransactions.id, row.id));
+
+    if (parentSplits.length > 0 && tmplDebit > 0 && rowDebit > 0) {
+      const percents = parentSplits.map((s) =>
+        percentFromAmount(Number(s.amount), tmplDebit),
+      );
+      const amounts = amountsFromPercents(rowDebit, percents);
+      await db.insert(bankTransactionSplits).values(
+        parentSplits.map((s, i) => ({
+          bankTxnId: row.id,
+          budgetLineId: s.budgetLineId,
+          fundingSourceId: s.fundingSourceId,
+          amount: amounts[i]!.toFixed(2),
+          description: s.description,
+          sortOrder: i,
+        })),
+      );
+    }
+    tagged++;
+  }
+  return tagged;
+}
+
 // -------------------- Classify one transaction --------------------
 
 export type ClassifyState = {
   ok: boolean;
   error?: string;
   fieldErrors?: Record<string, string>;
+  appliedCount?: number;
 };
 
 export async function classifyBankTransaction(
@@ -395,7 +544,73 @@ export async function classifyBankTransaction(
     revalidatePath(`/budget/${paidReportYear ?? year}/reports`);
     revalidatePath(`/budget/${paidReportYear ?? year}/reports/${input.expenseReportId}`);
   }
-  return { ok: true };
+
+  let appliedCount = 0;
+  const applySimilar = formData.get("applySimilar") === "1";
+  const overwriteSimilar = formData.get("overwriteSimilar") === "1";
+  if (
+    applySimilar &&
+    !BULK_SKIP.has(input.classification)
+  ) {
+    appliedCount = await copyClassificationToSimilar({
+      sourceId: input.txnId,
+      description: txn.description,
+      debit: txn.debit,
+      credit: txn.credit,
+      classification: input.classification,
+      budgetLineId: input.budgetLineId ?? null,
+      fundingSourceId: input.fundingSourceId ?? null,
+      note: input.note ?? null,
+      email,
+      onlyUnclassified: !overwriteSimilar,
+    });
+    revalidatePath(`/budget/${year}/expenses`);
+  }
+
+  return { ok: true, appliedCount };
+}
+
+async function copyClassificationToSimilar(opts: {
+  sourceId: string;
+  description: string;
+  debit: string | null;
+  credit: string | null;
+  classification: string;
+  budgetLineId: string | null;
+  fundingSourceId: string | null;
+  note: string | null;
+  email: string;
+  onlyUnclassified: boolean;
+}): Promise<number> {
+  const ids = await listSimilarTxnIds(
+    {
+      description: opts.description,
+      debit: opts.debit,
+      credit: opts.credit,
+    },
+    { onlyUnclassified: opts.onlyUnclassified, excludeId: opts.sourceId },
+  );
+  if (ids.length === 0) return 0;
+  const now = new Date();
+  await db
+    .update(bankTransactions)
+    .set({
+      classification: opts.classification,
+      budgetLineId:
+        opts.classification === "direct_expense" ? opts.budgetLineId : null,
+      fundingSourceId:
+        opts.classification === "grant_receipt" ||
+        opts.classification === "direct_expense"
+          ? opts.fundingSourceId
+          : null,
+      reversalOfTxnId: null,
+      expenseReportId: null,
+      note: opts.note,
+      classifiedBy: opts.email,
+      classifiedAt: now,
+    })
+    .where(inArray(bankTransactions.id, ids));
+  return ids.length;
 }
 
 function nullable(v: FormDataEntryValue | null): string | null {
@@ -410,6 +625,7 @@ export type SplitState = {
   ok: boolean;
   error?: string;
   fieldErrors?: Record<string, string>;
+  appliedCount?: number;
 };
 
 /**
@@ -514,7 +730,100 @@ export async function saveBankSplits(
   revalidatePath(`/budget/${year}/bank/${txnId}`);
   revalidatePath(`/budget/${year}/expenses`);
   revalidatePath(`/budget/${year}`);
-  return { ok: true };
+
+  let appliedCount = 0;
+  const applySimilar = formData.get("applySimilar") === "1";
+  const overwriteSimilar = formData.get("overwriteSimilar") === "1";
+  if (applySimilar && splits.length > 0 && txn.debit) {
+    appliedCount = await copySplitsToSimilar({
+      sourceId: txnId,
+      description: txn.description,
+      debit: txn.debit,
+      splits,
+      email,
+      overwrite: overwriteSimilar,
+    });
+  }
+
+  return { ok: true, appliedCount };
+}
+
+async function copySplitsToSimilar(opts: {
+  sourceId: string;
+  description: string;
+  debit: string;
+  splits: BankTransactionSplitInput[];
+  email: string;
+  overwrite: boolean;
+}): Promise<number> {
+  const ids = await listSimilarTxnIds(
+    { description: opts.description, debit: opts.debit, credit: null },
+    { onlyUnclassified: false, excludeId: opts.sourceId },
+  );
+  if (ids.length === 0) return 0;
+
+  const siblings = await db
+    .select({
+      id: bankTransactions.id,
+      debit: bankTransactions.debit,
+      classification: bankTransactions.classification,
+    })
+    .from(bankTransactions)
+    .where(inArray(bankTransactions.id, ids));
+
+  const existingSplitParents = new Set(
+    (
+      await db
+        .select({ id: bankTransactionSplits.bankTxnId })
+        .from(bankTransactionSplits)
+        .where(inArray(bankTransactionSplits.bankTxnId, ids))
+    ).map((r) => r.id),
+  );
+
+  const sourceDebit = Number(opts.debit);
+  const percents = opts.splits.map((s) => percentFromAmount(s.amount, sourceDebit));
+  const now = new Date();
+  let count = 0;
+
+  for (const sib of siblings) {
+    if (!sib.debit) continue;
+    if (
+      sib.classification !== "unclassified" &&
+      sib.classification !== "direct_expense"
+    ) {
+      continue;
+    }
+    if (!opts.overwrite && existingSplitParents.has(sib.id)) continue;
+
+    const amounts = amountsFromPercents(Number(sib.debit), percents);
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(bankTransactionSplits)
+        .where(eq(bankTransactionSplits.bankTxnId, sib.id));
+      await tx.insert(bankTransactionSplits).values(
+        opts.splits.map((sp, i) => ({
+          bankTxnId: sib.id,
+          budgetLineId: sp.budgetLineId,
+          fundingSourceId: sp.fundingSourceId ?? null,
+          amount: amounts[i]!.toFixed(2),
+          description: sp.description ?? null,
+          sortOrder: i,
+        })),
+      );
+      await tx
+        .update(bankTransactions)
+        .set({
+          classification: "direct_expense",
+          budgetLineId: null,
+          fundingSourceId: null,
+          classifiedBy: opts.email,
+          classifiedAt: now,
+        })
+        .where(eq(bankTransactions.id, sib.id));
+    });
+    count++;
+  }
+  return count;
 }
 
 /** Fetch the splits for a bank txn — used by the detail page to seed the form. */

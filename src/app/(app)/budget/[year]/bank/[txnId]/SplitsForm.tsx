@@ -3,6 +3,11 @@
 import { useMemo, useState, useTransition } from "react";
 import { Plus, Split, Trash2, TriangleAlert } from "lucide-react";
 import { saveBankSplits, type SplitState } from "@/lib/budget/bank-actions";
+import {
+  amountsFromPercents,
+  percentFromAmount,
+  type SimilarTxnStats,
+} from "@/lib/budget/payee";
 
 type Option = { id: string; label: string };
 type FundingOption = Option & { kind: string };
@@ -10,6 +15,7 @@ type FundingOption = Option & { kind: string };
 type SplitRow = {
   key: string;
   amount: string;
+  percent: string;
   budgetLineId: string;
   fundingSourceId: string;
   description: string;
@@ -34,6 +40,7 @@ export function SplitsForm({
   budgetLineOptions,
   fundingOptions,
   existing,
+  similar,
 }: {
   txnId: string;
   txnDebit: number;
@@ -47,6 +54,7 @@ export function SplitsForm({
     amount: string;
     description: string | null;
   }>;
+  similar: SimilarTxnStats;
 }) {
   const [rows, setRows] = useState<SplitRow[]>(() => {
     if (existing.length === 0) {
@@ -56,6 +64,7 @@ export function SplitsForm({
     return existing.map((e) => ({
       key: e.id,
       amount: Number(e.amount).toString(),
+      percent: percentFromAmount(Number(e.amount), txnDebit).toString(),
       budgetLineId: e.budgetLineId,
       fundingSourceId: e.fundingSourceId ?? "",
       description: e.description ?? "",
@@ -64,6 +73,8 @@ export function SplitsForm({
   const [state, setState] = useState<SplitState | undefined>();
   const [pending, startTransition] = useTransition();
   const [confirmClear, setConfirmClear] = useState(false);
+  const [applySimilar, setApplySimilar] = useState(false);
+  const [overwriteSimilar, setOverwriteSimilar] = useState(false);
 
   const total = useMemo(
     () =>
@@ -75,11 +86,20 @@ export function SplitsForm({
   );
   const remaining = txnDebit - total;
   const matches = Math.abs(remaining) < 0.005;
+  const percentTotal = useMemo(
+    () =>
+      rows.reduce((s, r) => {
+        const n = Number(r.percent);
+        return Number.isFinite(n) ? s + n : s;
+      }, 0),
+    [rows],
+  );
 
   function freshRow(): SplitRow {
     return {
       key: makeKey(),
       amount: "",
+      percent: "",
       budgetLineId: "",
       fundingSourceId: "",
       description: "",
@@ -87,7 +107,15 @@ export function SplitsForm({
   }
 
   function addRow() {
-    setRows((r) => [...r, { ...freshRow(), amount: remaining > 0 ? remaining.toFixed(2) : "" }]);
+    setRows((r) => [
+      ...r,
+      {
+        ...freshRow(),
+        amount: remaining > 0 ? remaining.toFixed(2) : "",
+        percent:
+          remaining > 0 ? percentFromAmount(remaining, txnDebit).toString() : "",
+      },
+    ]);
   }
   function removeRow(key: string) {
     setRows((r) => (r.length <= 1 ? r : r.filter((x) => x.key !== key)));
@@ -100,7 +128,30 @@ export function SplitsForm({
     const row = rows.find((r) => r.key === key);
     if (!row) return;
     const current = Number(row.amount) || 0;
-    update(key, { amount: (current + remaining).toFixed(2) });
+    const next = current + remaining;
+    update(key, {
+      amount: next.toFixed(2),
+      percent: percentFromAmount(next, txnDebit).toString(),
+    });
+  }
+
+  function setAmount(key: string, amount: string) {
+    const n = Number(amount);
+    update(key, {
+      amount,
+      percent: Number.isFinite(n) && n > 0
+        ? percentFromAmount(n, txnDebit).toString()
+        : "",
+    });
+  }
+
+  function setPercent(key: string, percent: string) {
+    const n = Number(percent);
+    const amount =
+      Number.isFinite(n) && n >= 0
+        ? amountsFromPercents(txnDebit, [n])[0]!.toFixed(2)
+        : "";
+    update(key, { percent, amount });
   }
 
   function submit(clearMode: boolean) {
@@ -119,6 +170,8 @@ export function SplitsForm({
     const fd = new FormData();
     fd.append("txnId", txnId);
     fd.append("splits", JSON.stringify(payload));
+    if (applySimilar && !clearMode) fd.append("applySimilar", "1");
+    if (overwriteSimilar && !clearMode) fd.append("overwriteSimilar", "1");
     startTransition(async () => {
       const res = await saveBankSplits(undefined, fd);
       setState(res);
@@ -146,9 +199,9 @@ export function SplitsForm({
         </div>
       </div>
       <p className="mt-1 text-xs text-hl-muted">
-        Use splits when one bank debit covers multiple things (a $2,000
-        invoice split across two grant projects). Each split gets its own
-        budget line and optional funding source. Sum of splits must equal
+        Use splits when one bank debit covers multiple things — a Nethris
+        payroll across salary lines, or one invoice across two grants.
+        Enter dollars or percentages; they stay in sync. Sum must equal
         the parent debit.
       </p>
 
@@ -184,7 +237,7 @@ export function SplitsForm({
                       inputMode="decimal"
                       className="hl-input pl-5"
                       value={row.amount}
-                      onChange={(e) => update(row.key, { amount: e.target.value })}
+                      onChange={(e) => setAmount(row.key, e.target.value)}
                       disabled={pending}
                       placeholder="0.00"
                     />
@@ -202,7 +255,23 @@ export function SplitsForm({
                   ) : null}
                 </div>
               </div>
-              <div className="md:col-span-4">
+              <div>
+                <label className="hl-label text-xs">Percent</label>
+                <div className="relative">
+                  <input
+                    inputMode="decimal"
+                    className="hl-input pr-7"
+                    value={row.percent}
+                    onChange={(e) => setPercent(row.key, e.target.value)}
+                    disabled={pending}
+                    placeholder="0"
+                  />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-hl-muted">
+                    %
+                  </span>
+                </div>
+              </div>
+              <div className="md:col-span-3">
                 <label className="hl-label text-xs">Budget line</label>
                 <select
                   className="hl-input"
@@ -280,6 +349,9 @@ export function SplitsForm({
             <span className="font-semibold tabular-nums text-hl-ink">
               ${txnDebit.toLocaleString("en-CA", { minimumFractionDigits: 2 })}
             </span>
+            <span className="ml-2 tabular-nums">
+              ({percentTotal.toFixed(1)}%)
+            </span>
           </span>
           {!matches ? (
             <span className="ml-2 inline-flex items-center gap-1 text-amber-700">
@@ -300,7 +372,49 @@ export function SplitsForm({
       ) : null}
       {state?.ok ? (
         <div className="mt-3 rounded-md border border-hl-green-200 bg-hl-green-50 p-3 text-xs text-hl-green-800">
-          Splits saved.
+          Splits saved
+          {state.appliedCount
+            ? ` — also applied by % to ${state.appliedCount} similar transaction${state.appliedCount === 1 ? "" : "s"}.`
+            : "."}
+        </div>
+      ) : null}
+
+      {similar.siblingCount > 0 ? (
+        <div className="mt-4 rounded-md border border-hl-border bg-hl-cream/40 p-3">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-hl-green-600"
+              checked={applySimilar}
+              onChange={(e) => setApplySimilar(e.target.checked)}
+              disabled={pending}
+            />
+            <span>
+              <span className="text-sm font-medium text-hl-ink">
+                Apply these percentages to all {similar.siblingCount} other
+                &ldquo;{similar.label}&rdquo; transaction
+                {similar.siblingCount === 1 ? "" : "s"}
+              </span>
+              <span className="mt-0.5 block text-xs text-hl-muted">
+                Each sibling is split by the same % (dollar amounts scale to
+                that row&rsquo;s debit). Unclassified and already-tagged
+                direct expenses are included; rows that already have splits
+                are skipped unless you overwrite.
+              </span>
+            </span>
+          </label>
+          {applySimilar ? (
+            <label className="mt-3 ml-7 flex cursor-pointer items-center gap-2 text-xs text-hl-muted">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-hl-green-600"
+                checked={overwriteSimilar}
+                onChange={(e) => setOverwriteSimilar(e.target.checked)}
+                disabled={pending}
+              />
+              Overwrite existing splits on those rows too
+            </label>
+          ) : null}
         </div>
       ) : null}
 
