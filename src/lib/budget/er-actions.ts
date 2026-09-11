@@ -643,36 +643,35 @@ export async function cancelExpenseReport(
 
   const now = new Date();
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(expenseReports)
-      .set({
-        status: "cancelled",
-        cancelledAt: now,
-        cancelledBy: actor,
-        cancelReason: reason || null,
-        updatedAt: now,
-      })
-      .where(eq(expenseReports.id, report.id));
+  // neon-http doesn't support db.transaction(); run sequentially instead.
+  await db
+    .update(expenseReports)
+    .set({
+      status: "cancelled",
+      cancelledAt: now,
+      cancelledBy: actor,
+      cancelReason: reason || null,
+      updatedAt: now,
+    })
+    .where(eq(expenseReports.id, report.id));
 
-    // If the report was already paid, unlink the bank txn so it can be
-    // reclassified. (Rare — but keeps the reconciliation invariant safe.)
-    if (report.paidByBankTxnId) {
-      await tx
-        .update(bankTransactions)
-        .set({
-          expenseReportId: null,
-          classification: "unclassified",
-          classifiedBy: null,
-          classifiedAt: null,
-        })
-        .where(eq(bankTransactions.id, report.paidByBankTxnId));
-      await tx
-        .update(expenseReports)
-        .set({ paidAt: null, paidByBankTxnId: null })
-        .where(eq(expenseReports.id, report.id));
-    }
-  });
+  // If the report was already paid, unlink the bank txn so it can be
+  // reclassified. (Rare — but keeps the reconciliation invariant safe.)
+  if (report.paidByBankTxnId) {
+    await db
+      .update(bankTransactions)
+      .set({
+        expenseReportId: null,
+        classification: "unclassified",
+        classifiedBy: null,
+        classifiedAt: null,
+      })
+      .where(eq(bankTransactions.id, report.paidByBankTxnId));
+    await db
+      .update(expenseReports)
+      .set({ paidAt: null, paidByBankTxnId: null })
+      .where(eq(expenseReports.id, report.id));
+  }
 
   try {
     await emailErCancellation({

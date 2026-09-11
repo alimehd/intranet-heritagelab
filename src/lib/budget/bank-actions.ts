@@ -483,56 +483,59 @@ export async function classifyBankTransaction(
   const year = Number(txn.txnDate.slice(0, 4));
   const now = new Date();
 
-  await db.transaction(async (tx) => {
-    // If this txn was previously linked to a different ER, unpin that ER
-    // first so we don't leave orphan "paid" state.
-    if (
-      txn.expenseReportId &&
-      txn.expenseReportId !== (input.expenseReportId ?? null)
-    ) {
-      await tx
-        .update(expenseReports)
-        .set({ status: "approved", paidAt: null, paidByBankTxnId: null })
-        .where(eq(expenseReports.id, txn.expenseReportId));
-    }
+  // Note: the neon-http driver doesn't support real transactions, so these
+  // run sequentially rather than atomically. Each step is idempotent enough
+  // (keyed on this one txn/ER pair) that a mid-sequence failure just leaves
+  // the row needing a re-save rather than corrupting state.
 
-    await tx
-      .update(bankTransactions)
+  // If this txn was previously linked to a different ER, unpin that ER
+  // first so we don't leave orphan "paid" state.
+  if (
+    txn.expenseReportId &&
+    txn.expenseReportId !== (input.expenseReportId ?? null)
+  ) {
+    await db
+      .update(expenseReports)
+      .set({ status: "approved", paidAt: null, paidByBankTxnId: null })
+      .where(eq(expenseReports.id, txn.expenseReportId));
+  }
+
+  await db
+    .update(bankTransactions)
+    .set({
+      classification: input.classification,
+      // Clear tag fields not relevant to the new classification, then set
+      // whatever this classification actually uses.
+      budgetLineId:
+        input.classification === "direct_expense" ? (input.budgetLineId ?? null) : null,
+      fundingSourceId:
+        input.classification === "grant_receipt" ||
+        input.classification === "direct_expense"
+          ? (input.fundingSourceId ?? null)
+          : null,
+      reversalOfTxnId:
+        input.classification === "reversal" ? (input.reversalOfTxnId ?? null) : null,
+      expenseReportId:
+        input.classification === "er_reimbursement"
+          ? (input.expenseReportId ?? null)
+          : null,
+      note: input.note ?? null,
+      classifiedBy: email,
+      classifiedAt: now,
+    })
+    .where(eq(bankTransactions.id, input.txnId));
+
+  if (input.classification === "er_reimbursement" && input.expenseReportId) {
+    await db
+      .update(expenseReports)
       .set({
-        classification: input.classification,
-        // Clear tag fields not relevant to the new classification, then set
-        // whatever this classification actually uses.
-        budgetLineId:
-          input.classification === "direct_expense" ? (input.budgetLineId ?? null) : null,
-        fundingSourceId:
-          input.classification === "grant_receipt" ||
-          input.classification === "direct_expense"
-            ? (input.fundingSourceId ?? null)
-            : null,
-        reversalOfTxnId:
-          input.classification === "reversal" ? (input.reversalOfTxnId ?? null) : null,
-        expenseReportId:
-          input.classification === "er_reimbursement"
-            ? (input.expenseReportId ?? null)
-            : null,
-        note: input.note ?? null,
-        classifiedBy: email,
-        classifiedAt: now,
+        status: "paid",
+        paidAt: now,
+        paidByBankTxnId: input.txnId,
+        updatedAt: now,
       })
-      .where(eq(bankTransactions.id, input.txnId));
-
-    if (input.classification === "er_reimbursement" && input.expenseReportId) {
-      await tx
-        .update(expenseReports)
-        .set({
-          status: "paid",
-          paidAt: now,
-          paidByBankTxnId: input.txnId,
-          updatedAt: now,
-        })
-        .where(eq(expenseReports.id, input.expenseReportId));
-    }
-  });
+      .where(eq(expenseReports.id, input.expenseReportId));
+  }
 
   revalidatePath(`/budget/${year}/bank`);
   revalidatePath(`/budget/${year}/bank/${input.txnId}`);
@@ -703,38 +706,36 @@ export async function saveBankSplits(
 
   const year = Number(txn.txnDate.slice(0, 4));
 
-  await db.transaction(async (tx) => {
-    // Wipe existing splits and re-insert. Simpler than diffing; splits
-    // are cheap and this action is rare.
-    await tx
-      .delete(bankTransactionSplits)
-      .where(eq(bankTransactionSplits.bankTxnId, txnId));
+  // neon-http doesn't support db.transaction(); wipe + re-insert
+  // sequentially instead. Splits are cheap and this action is rare.
+  await db
+    .delete(bankTransactionSplits)
+    .where(eq(bankTransactionSplits.bankTxnId, txnId));
 
-    if (splits.length > 0) {
-      await tx.insert(bankTransactionSplits).values(
-        splits.map((sp: BankTransactionSplitInput, i: number) => ({
-          bankTxnId: txnId,
-          budgetLineId: sp.budgetLineId,
-          fundingSourceId: sp.fundingSourceId ?? null,
-          amount: sp.amount.toFixed(2),
-          description: sp.description ?? null,
-          sortOrder: i,
-        })),
-      );
-      // When splits govern the row, clear the parent's own tags so we
-      // never double-count.
-      await tx
-        .update(bankTransactions)
-        .set({
-          classification: "direct_expense",
-          budgetLineId: null,
-          fundingSourceId: null,
-          classifiedBy: email,
-          classifiedAt: new Date(),
-        })
-        .where(eq(bankTransactions.id, txnId));
-    }
-  });
+  if (splits.length > 0) {
+    await db.insert(bankTransactionSplits).values(
+      splits.map((sp: BankTransactionSplitInput, i: number) => ({
+        bankTxnId: txnId,
+        budgetLineId: sp.budgetLineId,
+        fundingSourceId: sp.fundingSourceId ?? null,
+        amount: sp.amount.toFixed(2),
+        description: sp.description ?? null,
+        sortOrder: i,
+      })),
+    );
+    // When splits govern the row, clear the parent's own tags so we
+    // never double-count.
+    await db
+      .update(bankTransactions)
+      .set({
+        classification: "direct_expense",
+        budgetLineId: null,
+        fundingSourceId: null,
+        classifiedBy: email,
+        classifiedAt: new Date(),
+      })
+      .where(eq(bankTransactions.id, txnId));
+  }
 
   revalidatePath(`/budget/${year}/bank`);
   revalidatePath(`/budget/${year}/bank/${txnId}`);
@@ -806,31 +807,30 @@ async function copySplitsToSimilar(opts: {
     if (!opts.overwrite && existingSplitParents.has(sib.id)) continue;
 
     const amounts = amountsFromPercents(Number(sib.debit), percents);
-    await db.transaction(async (tx) => {
-      await tx
-        .delete(bankTransactionSplits)
-        .where(eq(bankTransactionSplits.bankTxnId, sib.id));
-      await tx.insert(bankTransactionSplits).values(
-        opts.splits.map((sp, i) => ({
-          bankTxnId: sib.id,
-          budgetLineId: sp.budgetLineId,
-          fundingSourceId: sp.fundingSourceId ?? null,
-          amount: amounts[i]!.toFixed(2),
-          description: sp.description ?? null,
-          sortOrder: i,
-        })),
-      );
-      await tx
-        .update(bankTransactions)
-        .set({
-          classification: "direct_expense",
-          budgetLineId: null,
-          fundingSourceId: null,
-          classifiedBy: opts.email,
-          classifiedAt: now,
-        })
-        .where(eq(bankTransactions.id, sib.id));
-    });
+    // neon-http doesn't support db.transaction(); run sequentially.
+    await db
+      .delete(bankTransactionSplits)
+      .where(eq(bankTransactionSplits.bankTxnId, sib.id));
+    await db.insert(bankTransactionSplits).values(
+      opts.splits.map((sp, i) => ({
+        bankTxnId: sib.id,
+        budgetLineId: sp.budgetLineId,
+        fundingSourceId: sp.fundingSourceId ?? null,
+        amount: amounts[i]!.toFixed(2),
+        description: sp.description ?? null,
+        sortOrder: i,
+      })),
+    );
+    await db
+      .update(bankTransactions)
+      .set({
+        classification: "direct_expense",
+        budgetLineId: null,
+        fundingSourceId: null,
+        classifiedBy: opts.email,
+        classifiedAt: now,
+      })
+      .where(eq(bankTransactions.id, sib.id));
     count++;
   }
   return count;
