@@ -4,7 +4,6 @@ import { useMemo, useState, useTransition } from "react";
 import { Plus, Split, Trash2, TriangleAlert } from "lucide-react";
 import { saveBankSplits, type SplitState } from "@/lib/budget/bank-actions";
 import {
-  amountsFromPercents,
   percentFromAmount,
   type SimilarTxnStats,
 } from "@/lib/budget/payee";
@@ -148,8 +147,8 @@ export function SplitsForm({
   function setPercent(key: string, percent: string) {
     const n = Number(percent);
     const amount =
-      Number.isFinite(n) && n >= 0
-        ? amountsFromPercents(txnDebit, [n])[0]!.toFixed(2)
+      percent.trim() !== "" && Number.isFinite(n) && n >= 0 && txnDebit > 0
+        ? ((txnDebit * n) / 100).toFixed(2)
         : "";
     update(key, { percent, amount });
   }
