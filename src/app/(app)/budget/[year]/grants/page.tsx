@@ -26,6 +26,16 @@ const KIND_LABEL: Record<string, string> = {
   other: "Other",
 };
 
+// Light colour-coding so the funding kind reads at a glance across a grid
+// of cards — deliberately soft (bg-*-50 / text-*-700) to stay secondary to
+// the name and status badge.
+const KIND_STYLE: Record<string, string> = {
+  grant: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+  service_contract: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+  donation: "bg-pink-50 text-pink-700 ring-1 ring-pink-200",
+  other: "bg-hl-cream text-hl-muted ring-1 ring-hl-border",
+};
+
 const STATUS_STYLE: Record<string, string> = {
   active: "bg-hl-green-50 text-hl-green-700 ring-1 ring-hl-green-600/20",
   completed: "bg-hl-cream text-hl-muted ring-1 ring-hl-border",
@@ -158,7 +168,11 @@ function FundingSourceCard({
             {source.name}
           </h3>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-hl-muted">{KIND_LABEL[source.kind] ?? source.kind}</span>
+            <span
+              className={`hl-badge ${KIND_STYLE[source.kind] ?? KIND_STYLE.other}`}
+            >
+              {KIND_LABEL[source.kind] ?? source.kind}
+            </span>
             <span
               className={`hl-badge ${STATUS_STYLE[source.status] ?? STATUS_STYLE.active}`}
             >

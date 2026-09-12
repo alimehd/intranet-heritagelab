@@ -41,6 +41,14 @@ const KIND_LABEL: Record<string, string> = {
   other: "Other",
 };
 
+// Same light palette as the grants list page, kept in sync intentionally.
+const KIND_STYLE: Record<string, string> = {
+  grant: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
+  service_contract: "bg-purple-50 text-purple-700 ring-1 ring-purple-200",
+  donation: "bg-pink-50 text-pink-700 ring-1 ring-pink-200",
+  other: "bg-hl-cream text-hl-muted ring-1 ring-hl-border",
+};
+
 export default async function FundingSourceDetailPage({
   params,
   searchParams,
@@ -164,7 +172,11 @@ export default async function FundingSourceDetailPage({
               {source.name}
             </h1>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-hl-muted">
-              <span>{KIND_LABEL[source.kind] ?? source.kind}</span>
+              <span
+                className={`hl-badge text-xs ${KIND_STYLE[source.kind] ?? KIND_STYLE.other}`}
+              >
+                {KIND_LABEL[source.kind] ?? source.kind}
+              </span>
               <span>·</span>
               <span>Fiscal year {year}</span>
               <span>·</span>
