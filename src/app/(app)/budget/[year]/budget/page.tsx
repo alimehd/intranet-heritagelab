@@ -24,6 +24,18 @@ const MONTHS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+/** Column header with a hover-over explanation. Pure CSS — no JS needed. */
+function HeaderTip({ label, tip }: { label: string; tip: string }) {
+  return (
+    <span className="group relative inline-flex cursor-help items-center border-b border-dotted border-hl-muted/70">
+      {label}
+      <span className="pointer-events-none absolute right-0 top-full z-30 mt-1.5 hidden w-56 rounded-md bg-hl-ink p-2 text-left text-[11px] font-normal normal-case leading-snug text-white shadow-lg group-hover:block">
+        {tip}
+      </span>
+    </span>
+  );
+}
+
 export default async function BudgetGridPage({
   params,
 }: {
@@ -194,9 +206,17 @@ function RevenueTable({
               ))}
               <th className="px-3 py-2 text-right">Annual</th>
               <th className="border-l border-hl-border px-3 py-2 text-right">
-                Actual
+                <HeaderTip
+                  label="Actual"
+                  tip="Money actually received this year, from classified bank deposits."
+                />
               </th>
-              <th className="px-3 py-2 text-right">Remaining</th>
+              <th className="px-3 py-2 text-right">
+                <HeaderTip
+                  label="Remaining"
+                  tip="Annual projection minus actual received so far. Negative means you've received more than projected for the year."
+                />
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -337,9 +357,17 @@ function DisbursementTable({
               ))}
               <th className="px-3 py-2 text-right">Annual</th>
               <th className="border-l border-hl-border px-3 py-2 text-right">
-                Actual
+                <HeaderTip
+                  label="Actual"
+                  tip="Money spent this year, from classified bank expenses and paid expense reports."
+                />
               </th>
-              <th className="px-3 py-2 text-right">Remaining</th>
+              <th className="px-3 py-2 text-right">
+                <HeaderTip
+                  label="Remaining"
+                  tip="Annual budget minus actual spend so far. Negative means you've spent more than budgeted for the year."
+                />
+              </th>
             </tr>
           </thead>
           <tbody>

@@ -31,6 +31,8 @@ export type ExpenseLedgerRow = {
   /** ISO yyyy-mm-dd. */
   date: string;
   description: string;
+  /** Context note typed in at classify time (bank-sourced rows only). */
+  note: string | null;
   categoryCode: string | null;
   categoryName: string | null;
   budgetLineId: string | null;
@@ -68,6 +70,8 @@ export type ExpenseLedgerRow = {
         reportId: string;
         reportNumber: string;
         submitterName: string;
+        /** Raw expense_report_line id — needed to retag its funding source. */
+        lineId: string;
       };
 };
 
@@ -168,6 +172,7 @@ export async function getExpenseLedger(
             classification: bankTransactions.classification,
             txnDate: bankTransactions.txnDate,
             description: bankTransactions.description,
+            note: bankTransactions.note,
             debit: bankTransactions.debit,
             budgetLineId: bankTransactions.budgetLineId,
             budgetLineCode: budgetLines.fullCode,
@@ -226,6 +231,7 @@ export async function getExpenseLedger(
             txnDate: bankTransactions.txnDate,
             parentDescription: bankTransactions.description,
             splitDescription: bankTransactionSplits.description,
+            note: bankTransactions.note,
             amount: bankTransactionSplits.amount,
             budgetLineId: bankTransactionSplits.budgetLineId,
             budgetLineCode: budgetLines.fullCode,
@@ -348,6 +354,7 @@ export async function getExpenseLedger(
           id: `${kind}_${r.id}`,
           date: r.txnDate,
           description: r.description,
+          note: r.note ?? null,
           categoryCode: cat?.code ?? null,
           categoryName: cat?.name ?? null,
           budgetLineId: r.budgetLineId,
@@ -380,6 +387,7 @@ export async function getExpenseLedger(
         id: `split_${r.splitId}`,
         date: r.txnDate,
         description: desc,
+        note: r.note ?? null,
         categoryCode: cat?.code ?? null,
         categoryName: cat?.name ?? null,
         budgetLineId: r.budgetLineId,
@@ -403,6 +411,7 @@ export async function getExpenseLedger(
         id: `er_${r.id}`,
         date: r.expenseDate,
         description: r.description,
+        note: null,
         categoryCode: cat?.code ?? null,
         categoryName: cat?.name ?? null,
         budgetLineId: r.budgetLineId,
@@ -417,6 +426,7 @@ export async function getExpenseLedger(
           reportId: r.reportId,
           reportNumber: r.reportNumber,
           submitterName: r.submitterName,
+          lineId: r.id,
         },
       };
     }),
@@ -457,6 +467,25 @@ export function groupByMonth(rows: ExpenseLedgerRow[]): Array<{
   return Array.from(map.entries())
     .map(([month, v]) => ({ month, ...v }))
     .sort((a, b) => (a.month < b.month ? -1 : 1));
+}
+
+/** Group into a category breakdown for the summary pie chart. */
+export function groupByCategory(rows: ExpenseLedgerRow[]): Array<{
+  categoryCode: string;
+  categoryName: string;
+  total: number;
+}> {
+  const map = new Map<string, { categoryName: string; total: number }>();
+  for (const r of rows) {
+    const code = r.categoryCode ?? "—";
+    const name = r.categoryName ?? "Uncategorized";
+    const bucket = map.get(code) ?? { categoryName: name, total: 0 };
+    bucket.total += r.cost;
+    map.set(code, bucket);
+  }
+  return Array.from(map.entries())
+    .map(([categoryCode, v]) => ({ categoryCode, ...v }))
+    .sort((a, b) => b.total - a.total);
 }
 
 /** CSV serialisation mirroring the columns Ali's Excel "Expenses" sheet uses. */

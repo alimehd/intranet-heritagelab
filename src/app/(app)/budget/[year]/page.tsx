@@ -26,6 +26,7 @@ import {
   getRevenueGrid,
 } from "@/lib/budget/queries";
 import { countPendingApprovals } from "@/lib/budget/er-queries";
+import { getExpenseLedger, groupByCategory, groupByMonth } from "@/lib/budget/ledger";
 import { BudgetTabs, BudgetYearSwitcher, parseYearParam } from "../BudgetNav";
 import { OpeningBalanceForm } from "./OpeningBalanceForm";
 
@@ -43,7 +44,7 @@ export default async function BudgetOverviewPage({
   const year = parseYearParam(yearParam);
   if (year === null) notFound();
 
-  const [allYears, grid, revenue, cash, health, pendingApprovals] =
+  const [allYears, grid, revenue, cash, health, pendingApprovals, expenseRows] =
     await Promise.all([
       getFiscalYears(),
       getBudgetGrid(year),
@@ -53,9 +54,20 @@ export default async function BudgetOverviewPage({
       canApproveExpenseReports(session?.user?.email)
         ? countPendingApprovals(normalizeEmail(session?.user?.email ?? ""))
         : Promise.resolve(0),
+      getExpenseLedger({ year, includeUnclassified: false }),
     ]);
   const availableYears = allYears.map((y) => y.year);
   const editable = canEditBudget(session?.user?.email);
+
+  // ---- Spend breakdown & runway ----
+  const spendTotal = expenseRows.reduce((s, r) => s + r.cost, 0);
+  const monthsWithSpend = groupByMonth(expenseRows).length || 1;
+  const avgMonthlySpend = spendTotal / monthsWithSpend;
+  const runwayMonths =
+    cash?.currentBalance != null && avgMonthlySpend > 0
+      ? cash.currentBalance / avgMonthlySpend
+      : null;
+  const categoryBreakdown = groupByCategory(expenseRows).filter((c) => c.total > 0);
 
   const grantsCount = grid
     ? (await getFundingSources(grid.fiscalYear.id)).length
@@ -94,6 +106,18 @@ export default async function BudgetOverviewPage({
             transactionsCount={cash?.transactionsCount ?? 0}
             editable={editable}
           />
+
+          {spendTotal > 0 ? (
+            <SpendBreakdownCard
+              year={year}
+              breakdown={categoryBreakdown}
+              total={spendTotal}
+              avgMonthlySpend={avgMonthlySpend}
+              monthsWithSpend={monthsWithSpend}
+              currentBalance={cash?.currentBalance ?? null}
+              runwayMonths={runwayMonths}
+            />
+          ) : null}
 
           {unclassified > 0 ? (
             <ReconciliationAlert year={year} unclassified={unclassified} />
@@ -237,6 +261,139 @@ function CashPositionCard({
           <OpeningBalanceForm year={year} openingBalance={openingBalance} />
         </div>
       ) : null}
+    </section>
+  );
+}
+
+const PIE_COLORS = [
+  "#2f6f4f", // hl-green-700
+  "#4f9d6d", // hl-green-500
+  "#8fc79f", // hl-green-300
+  "#c99a3c", // amber
+  "#b56576", // rose
+  "#5b7ba3", // slate blue
+  "#8a6fb0", // violet
+  "#9a9a9a", // gray — "Other"
+];
+
+function SpendBreakdownCard({
+  year,
+  breakdown,
+  total,
+  avgMonthlySpend,
+  monthsWithSpend,
+  currentBalance,
+  runwayMonths,
+}: {
+  year: number;
+  breakdown: Array<{ categoryCode: string; categoryName: string; total: number }>;
+  total: number;
+  avgMonthlySpend: number;
+  monthsWithSpend: number;
+  currentBalance: number | null;
+  runwayMonths: number | null;
+}) {
+  // Keep the chart legible: top 6 categories + an "Other" bucket for the rest.
+  const MAX_SLICES = 6;
+  const sorted = [...breakdown].sort((a, b) => b.total - a.total);
+  const top = sorted.slice(0, MAX_SLICES);
+  const restTotal = sorted.slice(MAX_SLICES).reduce((s, c) => s + c.total, 0);
+  const slices =
+    restTotal > 0
+      ? [...top, { categoryCode: "other", categoryName: "Other categories", total: restTotal }]
+      : top;
+
+  let cursor = 0;
+  const stops = slices.map((s, i) => {
+    const pct = (s.total / total) * 100;
+    const start = cursor;
+    const end = cursor + pct;
+    cursor = end;
+    return { ...s, color: PIE_COLORS[i % PIE_COLORS.length], start, end, pct };
+  });
+  const gradient = `conic-gradient(${stops
+    .map((s) => `${s.color} ${s.start}% ${s.end}%`)
+    .join(", ")})`;
+
+  const runwayLabel =
+    runwayMonths === null
+      ? "—"
+      : runwayMonths >= 120
+        ? "120+ mo"
+        : `${runwayMonths.toFixed(1)} mo`;
+  const runwayTone =
+    runwayMonths === null ? "" : runwayMonths < 6 ? "text-red-700" : runwayMonths < 12 ? "text-amber-700" : "text-hl-ink";
+
+  return (
+    <section className="hl-card grid gap-6 p-5 md:grid-cols-2">
+      <div>
+        <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+          Spend breakdown
+        </h2>
+        <p className="mt-1 text-xs text-hl-muted">
+          {formatCad(total)} spent in {year} across classified bank expenses
+          and paid expense reports.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-5">
+          <div
+            className="h-32 w-32 shrink-0 rounded-full"
+            style={{ backgroundImage: gradient }}
+            role="img"
+            aria-label="Pie chart of expense breakdown by category"
+          />
+          <ul className="flex-1 space-y-1.5 text-xs">
+            {stops.map((s) => (
+              <li key={s.categoryCode} className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                />
+                <span className="flex-1 truncate text-hl-ink">
+                  {s.categoryName}
+                </span>
+                <span className="shrink-0 tabular-nums text-hl-muted">
+                  {formatCad(s.total)} · {s.pct.toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="border-t border-hl-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+        <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+          Runway
+        </h2>
+        <p className="mt-1 text-xs text-hl-muted">
+          Current balance divided by the average monthly spend so far in{" "}
+          {year} ({monthsWithSpend} month{monthsWithSpend === 1 ? "" : "s"} of
+          data).
+        </p>
+        <dl className="mt-4 grid grid-cols-2 gap-4">
+          <div>
+            <dt className="text-xs uppercase tracking-wider text-hl-muted">
+              Avg. monthly spend
+            </dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums text-hl-ink">
+              {formatCad(avgMonthlySpend)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wider text-hl-muted">
+              Runway
+            </dt>
+            <dd className={`mt-1 text-lg font-semibold tabular-nums ${runwayTone}`}>
+              {runwayLabel}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs text-hl-muted">
+          Based on a current balance of{" "}
+          {currentBalance === null ? "—" : formatCad(currentBalance)}.
+          Runway shrinks if spend accelerates or grant receipts slow down —
+          treat it as a rough guide, not a forecast.
+        </p>
+      </div>
     </section>
   );
 }

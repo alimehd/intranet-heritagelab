@@ -10,7 +10,8 @@ import {
   PenLine,
   Split,
 } from "lucide-react";
-import { canViewBudget } from "@/lib/budget/people";
+import { canEditBudget, canViewBudget } from "@/lib/budget/people";
+import { FundingSourceCell } from "./FundingSourceCell";
 import {
   getBudgetGrid,
   getFiscalYear,
@@ -58,6 +59,7 @@ export default async function ExpensesLedgerPage({
 }) {
   const session = await auth();
   if (!canViewBudget(session?.user?.email)) notFound();
+  const editable = canEditBudget(session?.user?.email);
 
   const { year: yearParam } = await params;
   const year = parseYearParam(yearParam);
@@ -225,7 +227,14 @@ export default async function ExpensesLedgerPage({
                     >
                       <td className="tabular-nums">{r.date}</td>
                       <td className={r.pending ? "italic" : ""}>
-                        {r.description}
+                        <div className={r.pending ? "" : "font-semibold text-hl-ink"}>
+                          {r.description}
+                        </div>
+                        {r.note ? (
+                          <div className="mt-0.5 text-xs font-normal text-hl-muted">
+                            {r.note}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="text-hl-muted">
                         {r.pending ? (
@@ -250,7 +259,25 @@ export default async function ExpensesLedgerPage({
                         )}
                       </td>
                       <td className="text-hl-muted">{r.categoryName ?? "—"}</td>
-                      <td className="text-hl-muted">{r.fundingSourceName ?? "—"}</td>
+                      <td className="text-hl-muted">
+                        {editable && r.source.kind !== "unclassified" ? (
+                          <FundingSourceCell
+                            year={year}
+                            kind={r.source.kind}
+                            id={
+                              r.source.kind === "split"
+                                ? r.source.splitId
+                                : r.source.kind === "er"
+                                  ? r.source.lineId
+                                  : r.source.txnId
+                            }
+                            value={r.fundingSourceId}
+                            options={fundingList.map((f) => ({ id: f.id, label: f.name }))}
+                          />
+                        ) : (
+                          r.fundingSourceName ?? "—"
+                        )}
+                      </td>
                       <td className="text-right font-medium tabular-nums">
                         {formatCad(r.cost)}
                       </td>
