@@ -248,6 +248,46 @@ export async function getFundingSourceReceivedInPeriod(
   return Number(row?.total ?? 0);
 }
 
+/**
+ * Actual receipts (grant_receipt bank txns) grouped by funding source for a
+ * fiscal year, scoped to that year's date range only — mirrors
+ * `getBudgetLineSpentMap` on the disbursement side. Used to overlay actuals
+ * on the projected revenue grid.
+ */
+export async function getRevenueReceivedMap(
+  fiscalYearId: string,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const [{ year: fyYear } = { year: undefined }] = await db
+    .select({ year: budgetFiscalYears.year })
+    .from(budgetFiscalYears)
+    .where(eq(budgetFiscalYears.id, fiscalYearId));
+  if (fyYear === undefined) return result;
+
+  const yearStart = `${fyYear}-01-01`;
+  const yearEnd = `${fyYear}-12-31`;
+  const rows = await db
+    .select({
+      fundingSourceId: bankTransactions.fundingSourceId,
+      total: sql<string>`COALESCE(SUM(${bankTransactions.credit}), 0)`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.classification, "grant_receipt"),
+        sql`${bankTransactions.fundingSourceId} IS NOT NULL`,
+        sql`${bankTransactions.txnDate} >= ${yearStart}`,
+        sql`${bankTransactions.txnDate} <= ${yearEnd}`,
+      ),
+    )
+    .groupBy(bankTransactions.fundingSourceId);
+
+  for (const r of rows) {
+    if (r.fundingSourceId) result.set(r.fundingSourceId, Number(r.total));
+  }
+  return result;
+}
+
 export async function getFundingSourceSpentInPeriod(
   id: string,
   startDate: string,

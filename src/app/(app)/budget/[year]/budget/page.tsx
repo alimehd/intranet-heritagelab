@@ -7,8 +7,10 @@ import {
   getBudgetGrid,
   getFiscalYears,
   getRevenueGrid,
+  getRevenueReceivedMap,
 } from "@/lib/budget/queries";
 import type { BudgetGrid, RevenueGrid } from "@/lib/budget/queries";
+import { getBudgetLineSpentMap } from "@/lib/budget/er-queries";
 import {
   BudgetTabs,
   BudgetYearSwitcher,
@@ -39,12 +41,25 @@ export default async function BudgetGridPage({
     getRevenueGrid(year),
     getFiscalYears(),
   ]);
+  const [spentByLine, receivedBySource] = await Promise.all([
+    grid ? getBudgetLineSpentMap(grid.fiscalYear.id) : Promise.resolve(new Map<string, number>()),
+    grid ? getRevenueReceivedMap(grid.fiscalYear.id) : Promise.resolve(new Map<string, number>()),
+  ]);
   const availableYears = allYears.map((y) => y.year);
   const editable = canEditBudget(session?.user?.email);
 
   const openingBalance = grid?.fiscalYear.openingBalance
     ? Number(grid.fiscalYear.openingBalance)
     : null;
+
+  const actualSpent = grid
+    ? grid.categories
+        .flatMap((c) => c.lines)
+        .reduce((s, l) => s + (spentByLine.get(l.id) ?? 0), 0)
+    : 0;
+  const actualReceived = revenue
+    ? revenue.rows.reduce((s, r) => s + (receivedBySource.get(r.id) ?? 0), 0)
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -71,13 +86,15 @@ export default async function BudgetGridPage({
       {grid ? (
         <>
           {revenue && revenue.rows.length > 0 ? (
-            <RevenueTable revenue={revenue} />
+            <RevenueTable revenue={revenue} receivedBySource={receivedBySource} />
           ) : null}
-          <DisbursementTable grid={grid} />
+          <DisbursementTable grid={grid} spentByLine={spentByLine} />
           <ProjectedClosingCard
             openingBalance={openingBalance}
             receipts={revenue?.annualTotal ?? 0}
             disbursements={grid.annualTotal}
+            actualReceipts={actualReceived}
+            actualDisbursements={actualSpent}
           />
         </>
       ) : (
@@ -104,13 +121,29 @@ function UnseededYear({ year }: { year: number }) {
   );
 }
 
-function RevenueTable({ revenue }: { revenue: RevenueGrid }) {
+function RevenueTable({
+  revenue,
+  receivedBySource,
+}: {
+  revenue: RevenueGrid;
+  receivedBySource: Map<string, number>;
+}) {
+  const actualTotal = revenue.rows.reduce(
+    (s, r) => s + (receivedBySource.get(r.id) ?? 0),
+    0,
+  );
   return (
     <section className="hl-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hl-border px-5 py-3">
-        <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-          Projected receipts (grants, contracts, donations)
-        </h2>
+        <div>
+          <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+            Projected receipts (grants, contracts, donations)
+          </h2>
+          <p className="mt-0.5 text-xs text-hl-muted">
+            &ldquo;Actual&rdquo; is money actually received this year, from
+            classified bank deposits.
+          </p>
+        </div>
         <div className="text-xs text-hl-muted">
           Annual{" "}
           <span className="ml-1 font-semibold tabular-nums text-hl-ink">
@@ -120,7 +153,7 @@ function RevenueTable({ revenue }: { revenue: RevenueGrid }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm">
+        <table className="w-full min-w-[1080px] text-sm">
           <thead>
             <tr className="border-b border-hl-border bg-hl-cream text-xs font-semibold uppercase tracking-wide text-hl-muted">
               <th className="sticky left-0 z-10 bg-hl-cream px-3 py-2 text-left">
@@ -132,32 +165,50 @@ function RevenueTable({ revenue }: { revenue: RevenueGrid }) {
                 </th>
               ))}
               <th className="px-3 py-2 text-right">Annual</th>
+              <th className="border-l border-hl-border px-3 py-2 text-right">
+                Actual
+              </th>
+              <th className="px-3 py-2 text-right">Remaining</th>
             </tr>
           </thead>
           <tbody>
-            {revenue.rows.map((r) => (
-              <tr
-                key={r.id}
-                className="border-b border-hl-border last:border-b-0 hover:bg-hl-cream/30"
-              >
-                <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-hl-ink">
-                  <div className="flex items-baseline gap-2">
-                    <span>{r.name}</span>
-                    <span className="text-[10px] uppercase tracking-wider text-hl-muted">
-                      {r.kind.replace("_", " ")}
-                    </span>
-                  </div>
-                </td>
-                {r.monthly.map((v, i) => (
-                  <td key={i} className="px-2 py-1.5 text-right tabular-nums text-hl-ink">
-                    {formatCell(v)}
+            {revenue.rows.map((r) => {
+              const actual = receivedBySource.get(r.id) ?? 0;
+              const remaining = r.annual - actual;
+              return (
+                <tr
+                  key={r.id}
+                  className="border-b border-hl-border last:border-b-0 hover:bg-hl-cream/30"
+                >
+                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-hl-ink">
+                    <div className="flex items-baseline gap-2">
+                      <span>{r.name}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-hl-muted">
+                        {r.kind.replace("_", " ")}
+                      </span>
+                    </div>
                   </td>
-                ))}
-                <td className="px-3 py-1.5 text-right font-medium tabular-nums text-hl-ink">
-                  {formatCell(r.annual)}
-                </td>
-              </tr>
-            ))}
+                  {r.monthly.map((v, i) => (
+                    <td key={i} className="px-2 py-1.5 text-right tabular-nums text-hl-ink">
+                      {formatCell(v)}
+                    </td>
+                  ))}
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums text-hl-ink">
+                    {formatCell(r.annual)}
+                  </td>
+                  <td className="border-l border-hl-border px-3 py-1.5 text-right font-medium tabular-nums text-hl-green-700">
+                    {formatCell(actual)}
+                  </td>
+                  <td
+                    className={`px-3 py-1.5 text-right tabular-nums ${
+                      remaining < 0 ? "text-red-700" : "text-hl-muted"
+                    }`}
+                  >
+                    {formatCell(remaining)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr className="bg-hl-green-600 text-white">
@@ -178,6 +229,12 @@ function RevenueTable({ revenue }: { revenue: RevenueGrid }) {
               <td className="px-3 py-2 text-right font-semibold tabular-nums">
                 {formatCell(revenue.annualTotal)}
               </td>
+              <td className="border-l border-white/20 px-3 py-2 text-right font-semibold tabular-nums">
+                {formatCell(actualTotal)}
+              </td>
+              <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                {formatCell(revenue.annualTotal - actualTotal)}
+              </td>
             </tr>
           </tfoot>
         </table>
@@ -186,14 +243,29 @@ function RevenueTable({ revenue }: { revenue: RevenueGrid }) {
   );
 }
 
-function DisbursementTable({ grid }: { grid: BudgetGrid }) {
+function DisbursementTable({
+  grid,
+  spentByLine,
+}: {
+  grid: BudgetGrid;
+  spentByLine: Map<string, number>;
+}) {
+  const actualTotal = grid.categories
+    .flatMap((c) => c.lines)
+    .reduce((s, l) => s + (spentByLine.get(l.id) ?? 0), 0);
   return (
     <section className="hl-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hl-border px-5 py-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-            Projected disbursements
-          </h2>
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+              Projected disbursements
+            </h2>
+            <p className="mt-0.5 text-xs text-hl-muted">
+              &ldquo;Actual&rdquo; is money spent this year, from classified
+              bank expenses and paid expense reports.
+            </p>
+          </div>
           {grid.fiscalYear.isLocked ? (
             <span className="hl-badge bg-amber-50 text-amber-800 ring-1 ring-amber-200">
               <Lock className="mr-1 h-3 w-3" />
@@ -210,7 +282,7 @@ function DisbursementTable({ grid }: { grid: BudgetGrid }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm">
+        <table className="w-full min-w-[1080px] text-sm">
           <thead>
             <tr className="border-b border-hl-border bg-hl-cream text-xs font-semibold uppercase tracking-wide text-hl-muted">
               <th className="sticky left-0 z-10 bg-hl-cream px-3 py-2 text-left">
@@ -222,61 +294,97 @@ function DisbursementTable({ grid }: { grid: BudgetGrid }) {
                 </th>
               ))}
               <th className="px-3 py-2 text-right">Annual</th>
+              <th className="border-l border-hl-border px-3 py-2 text-right">
+                Actual
+              </th>
+              <th className="px-3 py-2 text-right">Remaining</th>
             </tr>
           </thead>
           <tbody>
-            {grid.categories.map((cat) => (
-              <Fragment key={cat.id}>
-                <tr className="border-b border-hl-border bg-hl-cream/50">
-                  <th
-                    scope="rowgroup"
-                    className="sticky left-0 z-10 bg-hl-cream/95 px-3 py-2 text-left text-sm font-semibold text-hl-ink"
-                  >
-                    <span className="mr-2 text-hl-muted">{cat.code}</span>
-                    {cat.name}
-                  </th>
-                  {cat.monthlyTotals.map((v, i) => (
-                    <td
-                      key={i}
-                      className="px-2 py-2 text-right font-semibold tabular-nums text-hl-ink"
+            {grid.categories.map((cat) => {
+              const catActual = cat.lines.reduce(
+                (s, l) => s + (spentByLine.get(l.id) ?? 0),
+                0,
+              );
+              return (
+                <Fragment key={cat.id}>
+                  <tr className="border-b border-hl-border bg-hl-cream/50">
+                    <th
+                      scope="rowgroup"
+                      className="sticky left-0 z-10 bg-hl-cream/95 px-3 py-2 text-left text-sm font-semibold text-hl-ink"
                     >
-                      {formatCell(v)}
-                    </td>
-                  ))}
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-hl-ink">
-                    {formatCell(cat.annualTotal)}
-                  </td>
-                </tr>
-                {cat.lines.map((line, lineIdx) => (
-                  <tr
-                    key={line.id}
-                    className={`border-b border-hl-border hover:bg-hl-cream/30 ${
-                      lineIdx === cat.lines.length - 1 ? "border-b-2" : ""
-                    }`}
-                  >
-                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-hl-ink">
-                      <div className="flex items-baseline gap-2 pl-4">
-                        <span className="text-xs font-medium text-hl-muted">
-                          {line.fullCode}
-                        </span>
-                        <span>{line.name}</span>
-                      </div>
-                    </td>
-                    {line.monthly.map((v, i) => (
+                      <span className="mr-2 text-hl-muted">{cat.code}</span>
+                      {cat.name}
+                    </th>
+                    {cat.monthlyTotals.map((v, i) => (
                       <td
                         key={i}
-                        className="px-2 py-1.5 text-right tabular-nums text-hl-ink"
+                        className="px-2 py-2 text-right font-semibold tabular-nums text-hl-ink"
                       >
                         {formatCell(v)}
                       </td>
                     ))}
-                    <td className="px-3 py-1.5 text-right font-medium tabular-nums text-hl-ink">
-                      {formatCell(line.annual)}
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-hl-ink">
+                      {formatCell(cat.annualTotal)}
+                    </td>
+                    <td className="border-l border-hl-border px-3 py-2 text-right font-semibold tabular-nums text-hl-ink">
+                      {formatCell(catActual)}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                        cat.annualTotal - catActual < 0
+                          ? "text-red-700"
+                          : "text-hl-ink"
+                      }`}
+                    >
+                      {formatCell(cat.annualTotal - catActual)}
                     </td>
                   </tr>
-                ))}
-              </Fragment>
-            ))}
+                  {cat.lines.map((line, lineIdx) => {
+                    const actual = spentByLine.get(line.id) ?? 0;
+                    const remaining = line.annual - actual;
+                    return (
+                      <tr
+                        key={line.id}
+                        className={`border-b border-hl-border hover:bg-hl-cream/30 ${
+                          lineIdx === cat.lines.length - 1 ? "border-b-2" : ""
+                        }`}
+                      >
+                        <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-hl-ink">
+                          <div className="flex items-baseline gap-2 pl-4">
+                            <span className="text-xs font-medium text-hl-muted">
+                              {line.fullCode}
+                            </span>
+                            <span>{line.name}</span>
+                          </div>
+                        </td>
+                        {line.monthly.map((v, i) => (
+                          <td
+                            key={i}
+                            className="px-2 py-1.5 text-right tabular-nums text-hl-ink"
+                          >
+                            {formatCell(v)}
+                          </td>
+                        ))}
+                        <td className="px-3 py-1.5 text-right font-medium tabular-nums text-hl-ink">
+                          {formatCell(line.annual)}
+                        </td>
+                        <td className="border-l border-hl-border px-3 py-1.5 text-right font-medium tabular-nums text-hl-ink">
+                          {actual ? formatCell(actual) : "—"}
+                        </td>
+                        <td
+                          className={`px-3 py-1.5 text-right tabular-nums ${
+                            remaining < 0 ? "text-red-700" : "text-hl-muted"
+                          }`}
+                        >
+                          {formatCell(remaining)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr className="bg-hl-green-600 text-white">
@@ -297,6 +405,12 @@ function DisbursementTable({ grid }: { grid: BudgetGrid }) {
               <td className="px-3 py-2 text-right font-semibold tabular-nums">
                 {formatCell(grid.annualTotal)}
               </td>
+              <td className="border-l border-white/20 px-3 py-2 text-right font-semibold tabular-nums">
+                {formatCell(actualTotal)}
+              </td>
+              <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                {formatCell(grid.annualTotal - actualTotal)}
+              </td>
             </tr>
           </tfoot>
         </table>
@@ -309,23 +423,30 @@ function ProjectedClosingCard({
   openingBalance,
   receipts,
   disbursements,
+  actualReceipts,
+  actualDisbursements,
 }: {
   openingBalance: number | null;
   receipts: number;
   disbursements: number;
+  actualReceipts: number;
+  actualDisbursements: number;
 }) {
   const opening = openingBalance ?? 0;
   const closing = opening + receipts - disbursements;
+  const actualClosing = opening + actualReceipts - actualDisbursements;
   return (
     <section className="hl-card p-5">
       <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-        Projected closing cash balance
+        Closing cash balance — projected vs. actual
       </h2>
       <p className="mt-1 text-xs text-hl-muted">
-        Opening + projected receipts − projected disbursements. Update the
-        opening balance from the year overview once the actual number is known.
+        Opening + receipts − disbursements. Projected uses the budgeted
+        schedule above; actual uses classified bank activity to date. Update
+        the opening balance from the year overview once the actual number is
+        known.
       </p>
-      <dl className="mt-4 grid gap-3 sm:grid-cols-4">
+      <dl className="mt-4 grid gap-3 sm:grid-cols-5">
         <Stat
           label="Opening"
           value={openingBalance === null ? "not set" : formatCad(openingBalance)}
@@ -338,7 +459,23 @@ function ProjectedClosingCard({
           value={formatCad(closing)}
           emphasis={closing < 0 ? "danger" : "primary"}
         />
+        <Stat
+          label="Actual closing (to date)"
+          value={formatCad(actualClosing)}
+          emphasis={actualClosing < 0 ? "danger" : "default"}
+        />
       </dl>
+      <p className="mt-3 text-xs text-hl-muted">
+        Actual to date:{" "}
+        <span className="font-medium text-hl-green-700">
+          {formatCad(actualReceipts)}
+        </span>{" "}
+        received,{" "}
+        <span className="font-medium text-hl-ink">
+          {formatCad(actualDisbursements)}
+        </span>{" "}
+        spent.
+      </p>
     </section>
   );
 }

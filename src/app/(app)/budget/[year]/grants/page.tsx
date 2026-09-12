@@ -7,7 +7,9 @@ import {
   getFiscalYear,
   getFiscalYears,
   getFundingSourceReceivedById,
+  getFundingSourceReceivedInPeriod,
   getFundingSourceSpentById,
+  getFundingSourceSpentInPeriod,
   getFundingSources,
 } from "@/lib/budget/queries";
 import type { FundingSource } from "@/lib/db/schema";
@@ -62,14 +64,29 @@ export default async function GrantsPage({
   const availableYears = allYears.map((y) => y.year);
   const editable = canEditBudget(session?.user?.email);
 
-  // Received / spent per source — one round-trip each, but a handful of rows
-  // so it's fine. Optimise with a single grouped query when the list grows.
+  // Received / spent per source, scoped to THIS fiscal year — matching the
+  // detail page. Using the all-time totals here double-counts sources that
+  // have bank activity spanning multiple years but were never split into
+  // separate per-year funding sources (e.g. a deposit from a prior year's
+  // instalment still tagged to this same source id).
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
   const stats = await Promise.all(
-    sources.map(async (s) => ({
-      id: s.id,
-      received: await getFundingSourceReceivedById(s.id),
-      spent: await getFundingSourceSpentById(s.id),
-    })),
+    sources.map(async (s) => {
+      const [received, spent, receivedAllTime, spentAllTime] =
+        await Promise.all([
+          getFundingSourceReceivedInPeriod(s.id, yearStart, yearEnd),
+          getFundingSourceSpentInPeriod(s.id, yearStart, yearEnd),
+          getFundingSourceReceivedById(s.id),
+          getFundingSourceSpentById(s.id),
+        ]);
+      return {
+        id: s.id,
+        received,
+        spent,
+        hasOutsideActivity: receivedAllTime !== received || spentAllTime !== spent,
+      };
+    }),
   );
   const statsById = new Map(stats.map((s) => [s.id, s]));
 
@@ -129,6 +146,7 @@ export default async function GrantsPage({
               source={s}
               received={statsById.get(s.id)?.received ?? 0}
               spent={statsById.get(s.id)?.spent ?? 0}
+              hasOutsideActivity={statsById.get(s.id)?.hasOutsideActivity ?? false}
             />
           ))}
         </div>
@@ -142,11 +160,13 @@ function FundingSourceCard({
   source,
   received,
   spent,
+  hasOutsideActivity,
 }: {
   year: number;
   source: FundingSource;
   received: number;
   spent: number;
+  hasOutsideActivity: boolean;
 }) {
   const contract = Number(source.contractValue ?? 0);
   const receivedPct = contract > 0 ? Math.min(100, (received / contract) * 100) : 0;
@@ -160,7 +180,11 @@ function FundingSourceCard({
   return (
     <Link
       href={`/budget/${year}/grants/${source.id}`}
-      className="hl-card block p-5 transition hover:border-hl-green-600 hover:shadow-md"
+      className={`hl-card block p-5 transition hover:border-hl-green-600 hover:shadow-md ${
+        source.status === "active"
+          ? "border-hl-green-200 bg-hl-green-50/40"
+          : ""
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -214,6 +238,12 @@ function FundingSourceCard({
           barClass={spent > received ? "bg-red-600" : "bg-amber-500"}
         />
       </div>
+      {hasOutsideActivity ? (
+        <p className="mt-3 text-[11px] text-amber-800">
+          Also has bank activity outside {year} — figures above are scoped to
+          this year only.
+        </p>
+      ) : null}
     </Link>
   );
 }
