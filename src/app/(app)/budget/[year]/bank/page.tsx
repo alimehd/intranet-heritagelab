@@ -6,6 +6,7 @@ import { canEditBudget, canViewBudget } from "@/lib/budget/people";
 import {
   getBankAccounts,
   getBankTransactions,
+  getBudgetGrid,
   getFiscalYears,
   getReconciliationHealth,
 } from "@/lib/budget/queries";
@@ -60,7 +61,7 @@ export default async function BankListPage({
   const classification = isClassification(rawClass) ? rawClass : undefined;
   const editable = canEditBudget(session?.user?.email);
 
-  const [allYears, accounts, health, txns] = await Promise.all([
+  const [allYears, accounts, health, txns, grid] = await Promise.all([
     getFiscalYears(),
     getBankAccounts(),
     getReconciliationHealth(year),
@@ -70,10 +71,14 @@ export default async function BankListPage({
       accountId: accountFilter,
       search: q,
     }, 500),
+    getBudgetGrid(year),
   ]);
   const availableYears = allYears.map((y) => y.year);
 
   const accountsById = new Map(accounts.map((a) => [a.id, a]));
+  const lineCodeById = new Map(
+    (grid?.categories ?? []).flatMap((c) => c.lines.map((l) => [l.id, l.fullCode])),
+  );
 
   const summary = summariseHealth(health);
 
@@ -215,6 +220,14 @@ export default async function BankListPage({
                       >
                         {CLASSIFICATION_LABELS[t.classification as BankTxnClassification] ?? t.classification}
                       </span>
+                      {t.classification === "unclassified" && t.budgetLineId ? (
+                        <span
+                          className="hl-badge ml-1 bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                          title={t.note ?? "Budget line guessed, not yet confirmed"}
+                        >
+                          Guess: {lineCodeById.get(t.budgetLineId) ?? "?"}
+                        </span>
+                      ) : null}
                     </td>
                     <td>
                       {editable ? (
