@@ -182,7 +182,7 @@ function FundingSourceCard({
       href={`/budget/${year}/grants/${source.id}`}
       className={`hl-card block p-5 transition hover:border-hl-green-600 hover:shadow-md ${
         source.status === "active"
-          ? "border-hl-green-200 bg-hl-green-50/40"
+          ? "border-hl-green-300 bg-hl-green-100"
           : ""
       }`}
     >
