@@ -265,6 +265,20 @@ export const fundingSources = pgTable(
       .array()
       .notNull(),
     /**
+     * Optional link to a dedicated budget line (usually under the "007
+     * Project-specific lines" category) for THIS source's off-budget spend
+     * — costs that don't map to the general 001-006 budget at all (art
+     * materials for one activity, a one-off honorarium, …). Costs that DO
+     * belong on the general budget (a share of server hosting, a partial
+     * salary) still get tagged to the relevant 001-006 line with this
+     * funding source attached as well — this column just gives
+     * project-specific spend a home of its own. Nullable: not every source
+     * needs one (e.g. a donation with no dedicated activity).
+     */
+    projectLineId: uuid("project_line_id").references(() => budgetLines.id, {
+      onDelete: "set null",
+    }),
+    /**
      * DEPRECATED — kept for read compatibility during the migration to
      * `categoryCaps`. New code should read/write `categoryCaps` instead.
      * A backfill script populates `categoryCaps` from this column.

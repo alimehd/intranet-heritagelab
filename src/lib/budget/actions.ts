@@ -15,6 +15,7 @@ import {
   type FundingSourceStatus,
 } from "@/lib/db/schema";
 import { canEditBudget } from "@/lib/budget/people";
+import { ensureProjectLine } from "@/lib/budget/queries";
 import {
   openingBalanceInputSchema,
   parseFundingSourceForm,
@@ -104,6 +105,11 @@ export async function upsertFundingSource(
       })
       .where(eq(fundingSources.id, id));
 
+    // Give every source a home for project-specific (off-budget) costs —
+    // no-ops if it already has one, or if the name changed and needs a
+    // freshly-matched/created line.
+    await ensureProjectLine(id);
+
     revalidatePath(`/budget/${year || ""}/grants`);
     revalidatePath(`/budget/${year || ""}/grants/${id}`);
     revalidatePath(`/budget/${year || ""}/budget`);
@@ -146,6 +152,12 @@ export async function upsertFundingSource(
         yearlyAllocations: input.yearlyAllocations,
       })
       .returning({ id: fundingSources.id });
+
+    // Every new grant / service contract / donation gets a dedicated
+    // "007 Project-specific lines" budget line automatically, so
+    // off-budget costs (things that don't fit the general 001-006 budget)
+    // have somewhere to go from day one.
+    await ensureProjectLine(inserted.id);
 
     revalidatePath(`/budget/${fy.year}/grants`);
     revalidatePath(`/budget/${fy.year}/budget`);

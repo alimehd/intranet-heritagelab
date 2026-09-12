@@ -61,6 +61,11 @@ export default async function BudgetGridPage({
     ? revenue.rows.reduce((s, r) => s + (receivedBySource.get(r.id) ?? 0), 0)
     : 0;
 
+  const now = new Date();
+  // Only highlight a month column when looking at the current calendar
+  // year — a past/future fiscal year has no "current month" to call out.
+  const currentMonthIndex = year === now.getFullYear() ? now.getMonth() : null;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -72,6 +77,14 @@ export default async function BudgetGridPage({
           <p className="mt-1 text-sm text-hl-muted">
             Projected receipts &amp; disbursements by month.{" "}
             {editable ? "You have edit access." : "Read-only view."}
+            {currentMonthIndex !== null ? (
+              <>
+                {" "}
+                <span className="hl-badge bg-hl-green-100 text-hl-green-800">
+                  {MONTHS[currentMonthIndex]} highlighted below
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
         <BudgetYearSwitcher
@@ -86,9 +99,17 @@ export default async function BudgetGridPage({
       {grid ? (
         <>
           {revenue && revenue.rows.length > 0 ? (
-            <RevenueTable revenue={revenue} receivedBySource={receivedBySource} />
+            <RevenueTable
+              revenue={revenue}
+              receivedBySource={receivedBySource}
+              currentMonthIndex={currentMonthIndex}
+            />
           ) : null}
-          <DisbursementTable grid={grid} spentByLine={spentByLine} />
+          <DisbursementTable
+            grid={grid}
+            spentByLine={spentByLine}
+            currentMonthIndex={currentMonthIndex}
+          />
           <ProjectedClosingCard
             openingBalance={openingBalance}
             receipts={revenue?.annualTotal ?? 0}
@@ -124,9 +145,11 @@ function UnseededYear({ year }: { year: number }) {
 function RevenueTable({
   revenue,
   receivedBySource,
+  currentMonthIndex,
 }: {
   revenue: RevenueGrid;
   receivedBySource: Map<string, number>;
+  currentMonthIndex: number | null;
 }) {
   const actualTotal = revenue.rows.reduce(
     (s, r) => s + (receivedBySource.get(r.id) ?? 0),
@@ -159,8 +182,13 @@ function RevenueTable({
               <th className="sticky left-0 z-10 bg-hl-cream px-3 py-2 text-left">
                 Source
               </th>
-              {MONTHS.map((m) => (
-                <th key={m} className="px-2 py-2 text-right tabular-nums">
+              {MONTHS.map((m, i) => (
+                <th
+                  key={m}
+                  className={`px-2 py-2 text-right tabular-nums ${
+                    i === currentMonthIndex ? "bg-hl-green-100 text-hl-green-800" : ""
+                  }`}
+                >
                   {m}
                 </th>
               ))}
@@ -189,7 +217,12 @@ function RevenueTable({
                     </div>
                   </td>
                   {r.monthly.map((v, i) => (
-                    <td key={i} className="px-2 py-1.5 text-right tabular-nums text-hl-ink">
+                    <td
+                      key={i}
+                      className={`px-2 py-1.5 text-right tabular-nums text-hl-ink ${
+                        i === currentMonthIndex ? "bg-hl-green-50" : ""
+                      }`}
+                    >
                       {formatCell(v)}
                     </td>
                   ))}
@@ -221,7 +254,9 @@ function RevenueTable({
               {revenue.monthlyTotals.map((v, i) => (
                 <td
                   key={i}
-                  className="px-2 py-2 text-right font-semibold tabular-nums"
+                  className={`px-2 py-2 text-right font-semibold tabular-nums ${
+                    i === currentMonthIndex ? "bg-hl-green-700" : ""
+                  }`}
                 >
                   {formatCell(v)}
                 </td>
@@ -246,9 +281,11 @@ function RevenueTable({
 function DisbursementTable({
   grid,
   spentByLine,
+  currentMonthIndex,
 }: {
   grid: BudgetGrid;
   spentByLine: Map<string, number>;
+  currentMonthIndex: number | null;
 }) {
   const actualTotal = grid.categories
     .flatMap((c) => c.lines)
@@ -288,8 +325,13 @@ function DisbursementTable({
               <th className="sticky left-0 z-10 bg-hl-cream px-3 py-2 text-left">
                 Line
               </th>
-              {MONTHS.map((m) => (
-                <th key={m} className="px-2 py-2 text-right tabular-nums">
+              {MONTHS.map((m, i) => (
+                <th
+                  key={m}
+                  className={`px-2 py-2 text-right tabular-nums ${
+                    i === currentMonthIndex ? "bg-hl-green-100 text-hl-green-800" : ""
+                  }`}
+                >
                   {m}
                 </th>
               ))}
@@ -319,7 +361,9 @@ function DisbursementTable({
                     {cat.monthlyTotals.map((v, i) => (
                       <td
                         key={i}
-                        className="px-2 py-2 text-right font-semibold tabular-nums text-hl-ink"
+                        className={`px-2 py-2 text-right font-semibold tabular-nums text-hl-ink ${
+                          i === currentMonthIndex ? "bg-hl-green-100" : ""
+                        }`}
                       >
                         {formatCell(v)}
                       </td>
@@ -361,7 +405,9 @@ function DisbursementTable({
                         {line.monthly.map((v, i) => (
                           <td
                             key={i}
-                            className="px-2 py-1.5 text-right tabular-nums text-hl-ink"
+                            className={`px-2 py-1.5 text-right tabular-nums text-hl-ink ${
+                              i === currentMonthIndex ? "bg-hl-green-50" : ""
+                            }`}
                           >
                             {formatCell(v)}
                           </td>
@@ -397,7 +443,9 @@ function DisbursementTable({
               {grid.monthlyTotals.map((v, i) => (
                 <td
                   key={i}
-                  className="px-2 py-2 text-right font-semibold tabular-nums"
+                  className={`px-2 py-2 text-right font-semibold tabular-nums ${
+                    i === currentMonthIndex ? "bg-hl-green-700" : ""
+                  }`}
                 >
                   {formatCell(v)}
                 </td>

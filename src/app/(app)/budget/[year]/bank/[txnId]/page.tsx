@@ -71,7 +71,9 @@ export default async function ClassifyPage({
     grid?.categories.flatMap((c) =>
       c.lines.map((l) => ({
         id: l.id,
-        label: `${l.fullCode} · ${l.name} (${c.name})`,
+        label: `${l.fullCode} · ${l.name}`,
+        categoryCode: c.code,
+        categoryName: c.name,
       })),
     ) ?? [];
 
@@ -79,6 +81,7 @@ export default async function ClassifyPage({
     id: f.id,
     label: f.name,
     kind: f.kind,
+    projectLineId: f.projectLineId,
   }));
 
   const reversalOptions = reversalCandidates

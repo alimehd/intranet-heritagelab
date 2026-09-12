@@ -17,6 +17,7 @@ import {
   CLASSIFICATION_LABELS,
 } from "@/lib/budget/classify";
 import type { SimilarTxnStats } from "@/lib/budget/payee";
+import { groupBudgetLineOptions, type BudgetLineOption } from "@/lib/budget/line-options";
 import { SplitsForm } from "./SplitsForm";
 
 type TxnState = {
@@ -32,7 +33,7 @@ type TxnState = {
 };
 
 type Option = { id: string; label: string };
-type FundingOption = Option & { kind: string };
+type FundingOption = { id: string; label: string; kind: string; projectLineId: string | null };
 
 export function ClassifyForm({
   year,
@@ -49,7 +50,7 @@ export function ClassifyForm({
 }: {
   year: number;
   txn: TxnState;
-  budgetLineOptions: Option[];
+  budgetLineOptions: BudgetLineOption[];
   fundingOptions: FundingOption[];
   reversalOptions: Option[];
   erOptions: Option[];
@@ -78,6 +79,7 @@ export function ClassifyForm({
   const [note, setNote] = useState(txn.note);
   const [applySimilar, setApplySimilar] = useState(false);
   const [overwriteSimilar, setOverwriteSimilar] = useState(false);
+  const [lineAutoFilled, setLineAutoFilled] = useState(false);
 
   const [state, setState] = useState<ClassifyState | undefined>();
   const [pending, startTransition] = useTransition();
@@ -86,6 +88,33 @@ export function ClassifyForm({
     () => allowedClassifications(txn.hasDebit, txn.hasCredit),
     [txn.hasDebit, txn.hasCredit],
   );
+
+  const lineGroups = useMemo(
+    () => groupBudgetLineOptions(budgetLineOptions),
+    [budgetLineOptions],
+  );
+
+  /**
+   * Picking a funding source (grant / service contract / donation) fills
+   * the budget line with that project's own "007" line by default — the
+   * simple path for costs that don't belong on the general 001-006
+   * budget at all (art materials for one activity, a one-off honorarium…).
+   * Shared costs that DO belong on the general budget (a share of server
+   * hosting, a partial salary) just need the line switched afterwards —
+   * the funding source tag stays either way.
+   */
+  function handleFundingSourceChange(nextId: string) {
+    setFundingSourceId(nextId);
+    if (classification !== "direct_expense") return;
+    const source = fundingOptions.find((f) => f.id === nextId);
+    if (!source?.projectLineId) return;
+    const hasLine = budgetLineOptions.some((o) => o.id === source.projectLineId);
+    if (!hasLine) return;
+    if (budgetLineId === "" || lineAutoFilled) {
+      setBudgetLineId(source.projectLineId);
+      setLineAutoFilled(true);
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -173,40 +202,6 @@ export function ClassifyForm({
             Tag details
           </h2>
           <div className="mt-3 space-y-4">
-            {needsLine ? (
-              <div>
-                <label htmlFor="line" className="hl-label">
-                  Budget line{" "}
-                  <span className="font-normal text-hl-muted">
-                    (optional — leave blank to split the debit below)
-                  </span>
-                </label>
-                <select
-                  id="line"
-                  className="hl-input"
-                  value={budgetLineId}
-                  onChange={(e) => setBudgetLineId(e.target.value)}
-                  disabled={pending}
-                >
-                  <option value="">— pick a budget line —</option>
-                  {budgetLineOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                {fieldError("budgetLineId") ? (
-                  <p className="mt-1 text-xs text-red-700">{fieldError("budgetLineId")}</p>
-                ) : (
-                  <p className="mt-1 text-xs text-hl-muted">
-                    One line for the whole debit — or skip this and use{" "}
-                    <strong>Split across budget lines</strong> below (%, e.g.
-                    Nethris salary).
-                  </p>
-                )}
-              </div>
-            ) : null}
-
             {needsFunding ? (
               <div>
                 <label htmlFor="funding" className="hl-label">
@@ -216,7 +211,7 @@ export function ClassifyForm({
                   id="funding"
                   className="hl-input"
                   value={fundingSourceId}
-                  onChange={(e) => setFundingSourceId(e.target.value)}
+                  onChange={(e) => handleFundingSourceChange(e.target.value)}
                   disabled={pending}
                 >
                   <option value="">
@@ -232,6 +227,13 @@ export function ClassifyForm({
                 </select>
                 {fieldError("fundingSourceId") ? (
                   <p className="mt-1 text-xs text-red-700">{fieldError("fundingSourceId")}</p>
+                ) : classification === "direct_expense" ? (
+                  <p className="mt-1 text-xs text-hl-muted">
+                    Picking a grant / service contract fills the budget line
+                    below with that project&rsquo;s own line — switch it to a
+                    general (001-006) line for shared costs like hosting or a
+                    partial salary.
+                  </p>
                 ) : null}
                 {fundingOptions.length === 0 ? (
                   <p className="mt-1 text-xs text-hl-muted">
@@ -245,6 +247,52 @@ export function ClassifyForm({
                     .
                   </p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {needsLine ? (
+              <div>
+                <label htmlFor="line" className="hl-label">
+                  Budget line{" "}
+                  <span className="font-normal text-hl-muted">
+                    (optional — leave blank to split the debit below)
+                  </span>
+                </label>
+                <select
+                  id="line"
+                  className="hl-input"
+                  value={budgetLineId}
+                  onChange={(e) => {
+                    setBudgetLineId(e.target.value);
+                    setLineAutoFilled(false);
+                  }}
+                  disabled={pending}
+                >
+                  <option value="">— pick a budget line —</option>
+                  {lineGroups.map((g) => (
+                    <optgroup key={g.categoryCode} label={`${g.categoryCode} · ${g.categoryName}`}>
+                      {g.options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                {fieldError("budgetLineId") ? (
+                  <p className="mt-1 text-xs text-red-700">{fieldError("budgetLineId")}</p>
+                ) : lineAutoFilled ? (
+                  <p className="mt-1 text-xs text-hl-green-700">
+                    Auto-filled from the funding source&rsquo;s project line —
+                    pick a different one above for shared/general costs.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-hl-muted">
+                    One line for the whole debit — or skip this and use{" "}
+                    <strong>Split across budget lines</strong> below (%, e.g.
+                    Nethris salary).
+                  </p>
+                )}
               </div>
             ) : null}
 

@@ -142,7 +142,10 @@ export async function getExpenseLedger(
   }
   if (filters.search) {
     bankClauses.push(
-      sql`${bankTransactions.description} ILIKE ${`%${filters.search}%`}`,
+      or(
+        sql`${bankTransactions.description} ILIKE ${`%${filters.search}%`}`,
+        sql`${bankTransactions.note} ILIKE ${`%${filters.search}%`}`,
+      )!,
     );
   }
 
@@ -206,6 +209,7 @@ export async function getExpenseLedger(
       or(
         sql`${bankTransactionSplits.description} ILIKE ${`%${filters.search}%`}`,
         sql`${bankTransactions.description} ILIKE ${`%${filters.search}%`}`,
+        sql`${bankTransactions.note} ILIKE ${`%${filters.search}%`}`,
       )!,
     );
   }

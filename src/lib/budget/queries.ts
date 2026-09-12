@@ -172,6 +172,74 @@ export async function getFundingSourceById(
   return row ?? null;
 }
 
+/**
+ * Make sure a funding source has a dedicated budget line under "007
+ * Project-specific lines" to hang its off-budget costs on — things that
+ * don't map to the general 001-006 budget at all (art materials for one
+ * activity, a one-off honorarium, …). Costs that DO belong on the general
+ * budget still get tagged to the relevant 001-006 line with this funding
+ * source attached; this just gives project-specific spend a home.
+ *
+ * No-ops if already linked. Reuses an existing 007 line with a matching
+ * name first (so re-running never creates duplicates), otherwise creates
+ * one. Returns the line id, or null if the year has no "007" category yet
+ * (not seeded) — callers should treat that as "skip, nothing to link".
+ */
+export async function ensureProjectLine(
+  fundingSourceId: string,
+): Promise<string | null> {
+  const [source] = await db
+    .select()
+    .from(fundingSources)
+    .where(eq(fundingSources.id, fundingSourceId));
+  if (!source) return null;
+  if (source.projectLineId) return source.projectLineId;
+
+  const [cat007] = await db
+    .select()
+    .from(budgetCategories)
+    .where(
+      and(
+        eq(budgetCategories.fiscalYearId, source.fiscalYearId),
+        eq(budgetCategories.code, "007"),
+      ),
+    );
+  if (!cat007) return null;
+
+  const norm = (v: string) => v.toLowerCase().replace(/[\s._]+/g, "-").trim();
+  const existingLines = await db
+    .select()
+    .from(budgetLines)
+    .where(eq(budgetLines.categoryId, cat007.id));
+  const match = existingLines.find((l) => norm(l.name) === norm(source.name));
+
+  let lineId: string;
+  if (match) {
+    lineId = match.id;
+  } else {
+    const nextSort =
+      existingLines.reduce((m, l) => Math.max(m, l.sortOrder), 0) + 1;
+    const [inserted] = await db
+      .insert(budgetLines)
+      .values({
+        categoryId: cat007.id,
+        code: source.name,
+        fullCode: source.name,
+        name: source.name,
+        monthlyProjected: Array(12).fill("0.00"),
+        sortOrder: nextSort,
+      })
+      .returning({ id: budgetLines.id });
+    lineId = inserted!.id;
+  }
+
+  await db
+    .update(fundingSources)
+    .set({ projectLineId: lineId })
+    .where(eq(fundingSources.id, fundingSourceId));
+  return lineId;
+}
+
 /** Revenue grid — one row per funding source, monthly expected receipts. */
 export async function getRevenueGrid(year: number): Promise<RevenueGrid | null> {
   const fiscalYear = await getFiscalYear(year);

@@ -158,6 +158,11 @@ export default async function FundingSourceDetailPage({
         label: `${l.fullCode} · ${l.name} (${c.name})`,
       })),
     ) ?? [];
+  const projectLine = source.projectLineId
+    ? grid?.categories
+        .flatMap((c) => c.lines)
+        .find((l) => l.id === source.projectLineId) ?? null
+    : null;
 
   return (
     <div className="space-y-6">
@@ -245,6 +250,24 @@ export default async function FundingSourceDetailPage({
             <strong>{formatCad(spentAllTime)}</strong> spent all-time. If
             that&rsquo;s a separate grant/contract phase, consider giving it
             its own funding source instead of sharing this one across years.
+          </p>
+        ) : null}
+        {projectLine ? (
+          <p className="mt-2 text-xs text-hl-muted">
+            Project line for off-budget costs:{" "}
+            <span className="font-medium text-hl-ink">{projectLine.fullCode}</span>{" "}
+            ·{" "}
+            <Link
+              href={`/budget/${year}/expenses?line=${projectLine.id}`}
+              className="font-medium text-hl-green-700 hover:underline"
+            >
+              view its expenses →
+            </Link>{" "}
+            — use this line for things that don&rsquo;t fit the general
+            001-006 budget (e.g. activity supplies). Costs that DO belong
+            on the general budget (a share of hosting, a partial salary)
+            should stay on their usual 001-006 line with this source
+            attached.
           </p>
         ) : null}
       </section>

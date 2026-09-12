@@ -355,7 +355,7 @@ function FiltersBar({
       >
         <div className="md:col-span-2">
           <label className="hl-label" htmlFor="q">
-            Search description
+            Search description or note
           </label>
           <input
             id="q"

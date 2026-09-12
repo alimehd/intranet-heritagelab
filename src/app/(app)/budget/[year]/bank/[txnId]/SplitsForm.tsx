@@ -7,9 +7,10 @@ import {
   percentFromAmount,
   type SimilarTxnStats,
 } from "@/lib/budget/payee";
+import { groupBudgetLineOptions, type BudgetLineOption } from "@/lib/budget/line-options";
 
-type Option = { id: string; label: string };
-type FundingOption = Option & { kind: string };
+type Option = BudgetLineOption;
+type FundingOption = { id: string; label: string; kind: string; projectLineId: string | null };
 
 type SplitRow = {
   key: string;
@@ -18,6 +19,9 @@ type SplitRow = {
   budgetLineId: string;
   fundingSourceId: string;
   description: string;
+  /** True while `budgetLineId` was auto-filled from the funding source's
+   * project line rather than picked by hand — cleared on manual edit. */
+  lineAutoFilled: boolean;
 };
 
 function makeKey() {
@@ -67,6 +71,7 @@ export function SplitsForm({
       budgetLineId: e.budgetLineId,
       fundingSourceId: e.fundingSourceId ?? "",
       description: e.description ?? "",
+      lineAutoFilled: false,
     }));
   });
   const [state, setState] = useState<SplitState | undefined>();
@@ -102,7 +107,31 @@ export function SplitsForm({
       budgetLineId: "",
       fundingSourceId: "",
       description: "",
+      lineAutoFilled: false,
     };
+  }
+
+  const lineGroups = useMemo(
+    () => groupBudgetLineOptions(budgetLineOptions),
+    [budgetLineOptions],
+  );
+
+  /** Same auto-fill convenience as the main classify form, per split row. */
+  function setSplitFundingSource(key: string, fundingSourceId: string) {
+    const row = rows.find((r) => r.key === key);
+    const source = fundingOptions.find((f) => f.id === fundingSourceId);
+    const hasLine =
+      !!source?.projectLineId &&
+      budgetLineOptions.some((o) => o.id === source.projectLineId);
+    if (row && hasLine && (row.budgetLineId === "" || row.lineAutoFilled)) {
+      update(key, {
+        fundingSourceId,
+        budgetLineId: source!.projectLineId!,
+        lineAutoFilled: true,
+      });
+    } else {
+      update(key, { fundingSourceId });
+    }
   }
 
   function addRow() {
@@ -271,31 +300,11 @@ export function SplitsForm({
                 </div>
               </div>
               <div className="md:col-span-3">
-                <label className="hl-label text-xs">Budget line</label>
-                <select
-                  className="hl-input"
-                  value={row.budgetLineId}
-                  onChange={(e) =>
-                    update(row.key, { budgetLineId: e.target.value })
-                  }
-                  disabled={pending}
-                >
-                  <option value="">— pick —</option>
-                  {budgetLineOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="md:col-span-3">
                 <label className="hl-label text-xs">Funding source</label>
                 <select
                   className="hl-input"
                   value={row.fundingSourceId}
-                  onChange={(e) =>
-                    update(row.key, { fundingSourceId: e.target.value })
-                  }
+                  onChange={(e) => setSplitFundingSource(row.key, e.target.value)}
                   disabled={pending}
                 >
                   <option value="">— none / general —</option>
@@ -305,6 +314,36 @@ export function SplitsForm({
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="md:col-span-3">
+                <label className="hl-label text-xs">Budget line</label>
+                <select
+                  className="hl-input"
+                  value={row.budgetLineId}
+                  onChange={(e) =>
+                    update(row.key, {
+                      budgetLineId: e.target.value,
+                      lineAutoFilled: false,
+                    })
+                  }
+                  disabled={pending}
+                >
+                  <option value="">— pick —</option>
+                  {lineGroups.map((g) => (
+                    <optgroup key={g.categoryCode} label={`${g.categoryCode} · ${g.categoryName}`}>
+                      {g.options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                {row.lineAutoFilled ? (
+                  <p className="mt-1 text-[10px] text-hl-green-700">
+                    Auto-filled from the project line.
+                  </p>
+                ) : null}
               </div>
               <div className="md:col-span-3">
                 <label className="hl-label text-xs">

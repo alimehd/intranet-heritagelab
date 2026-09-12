@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { Landmark, Plus } from "lucide-react";
 import { canEditBudget, canViewBudget } from "@/lib/budget/people";
 import {
+  getBudgetGrid,
   getFiscalYear,
   getFiscalYears,
   getFundingSourceReceivedById,
@@ -57,12 +58,16 @@ export default async function GrantsPage({
   if (year === null) notFound();
 
   const fiscalYear = await getFiscalYear(year);
-  const [allYears, sources] = await Promise.all([
+  const [allYears, sources, grid] = await Promise.all([
     getFiscalYears(),
     fiscalYear ? getFundingSources(fiscalYear.id) : Promise.resolve([]),
+    getBudgetGrid(year),
   ]);
   const availableYears = allYears.map((y) => y.year);
   const editable = canEditBudget(session?.user?.email);
+  const lineById = new Map(
+    grid?.categories.flatMap((c) => c.lines.map((l) => [l.id, l])) ?? [],
+  );
 
   // Received / spent per source, scoped to THIS fiscal year — matching the
   // detail page. Using the all-time totals here double-counts sources that
@@ -147,6 +152,7 @@ export default async function GrantsPage({
               received={statsById.get(s.id)?.received ?? 0}
               spent={statsById.get(s.id)?.spent ?? 0}
               hasOutsideActivity={statsById.get(s.id)?.hasOutsideActivity ?? false}
+              projectLine={s.projectLineId ? lineById.get(s.projectLineId) ?? null : null}
             />
           ))}
         </div>
@@ -161,12 +167,14 @@ function FundingSourceCard({
   received,
   spent,
   hasOutsideActivity,
+  projectLine,
 }: {
   year: number;
   source: FundingSource;
   received: number;
   spent: number;
   hasOutsideActivity: boolean;
+  projectLine: { fullCode: string; name: string } | null;
 }) {
   const contract = Number(source.contractValue ?? 0);
   const receivedPct = contract > 0 ? Math.min(100, (received / contract) * 100) : 0;
@@ -242,6 +250,14 @@ function FundingSourceCard({
         <p className="mt-3 text-[11px] text-amber-800">
           Also has bank activity outside {year} — figures above are scoped to
           this year only.
+        </p>
+      ) : null}
+      {projectLine ? (
+        <p className="mt-3 text-[11px] text-hl-muted">
+          Project line:{" "}
+          <span className="font-medium text-hl-ink">{projectLine.fullCode}</span>{" "}
+          — for costs specific to this project that aren&rsquo;t part of the
+          general budget.
         </p>
       ) : null}
     </Link>
