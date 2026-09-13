@@ -5,15 +5,12 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownRight,
-  Coins,
   Banknote,
-  Landmark,
   AlertCircle,
   Inbox,
 } from "lucide-react";
 import {
   canApproveExpenseReports,
-  canEditBudget,
   canViewBudget,
 } from "@/lib/budget/people";
 import { normalizeEmail } from "@/lib/roles";
@@ -21,16 +18,39 @@ import {
   getBudgetGrid,
   getCashPosition,
   getFiscalYears,
-  getFundingSources,
   getReconciliationHealth,
-  getRevenueGrid,
 } from "@/lib/budget/queries";
 import { countPendingApprovals } from "@/lib/budget/er-queries";
-import { getExpenseLedger, groupByCategory, groupByMonth } from "@/lib/budget/ledger";
+import { getExpenseLedger, groupByFundingSource, groupByMonth } from "@/lib/budget/ledger";
 import { BudgetTabs, BudgetYearSwitcher, parseYearParam } from "../BudgetNav";
-import { OpeningBalanceForm } from "./OpeningBalanceForm";
 
 export const metadata = { title: "Budget — Heritage Lab" };
+
+const KIND_ORDER = ["service_contract", "grant", "donation", "other", "untagged"] as const;
+
+const KIND_LABEL: Record<string, string> = {
+  service_contract: "Service contracts",
+  grant: "Grants",
+  donation: "Donations",
+  other: "Other",
+  untagged: "Untagged",
+};
+
+const KIND_HINT: Record<string, string> = {
+  service_contract: "Earned / more flexible",
+  grant: "Typically restricted",
+  donation: "Usually unrestricted",
+  other: "",
+  untagged: "Not assigned to a source yet",
+};
+
+const KIND_COLOR: Record<string, string> = {
+  service_contract: "#2f6f4f",
+  grant: "#c99a3c",
+  donation: "#8a6fb0",
+  other: "#5b7ba3",
+  untagged: "#9a9a9a",
+};
 
 export default async function BudgetOverviewPage({
   params,
@@ -44,11 +64,10 @@ export default async function BudgetOverviewPage({
   const year = parseYearParam(yearParam);
   if (year === null) notFound();
 
-  const [allYears, grid, revenue, cash, health, pendingApprovals, expenseRows] =
+  const [allYears, grid, cash, health, pendingApprovals, expenseRows] =
     await Promise.all([
       getFiscalYears(),
       getBudgetGrid(year),
-      getRevenueGrid(year),
       getCashPosition(year),
       getReconciliationHealth(year),
       canApproveExpenseReports(session?.user?.email)
@@ -57,9 +76,7 @@ export default async function BudgetOverviewPage({
       getExpenseLedger({ year, includeUnclassified: false }),
     ]);
   const availableYears = allYears.map((y) => y.year);
-  const editable = canEditBudget(session?.user?.email);
 
-  // ---- Spend breakdown & runway ----
   const spendTotal = expenseRows.reduce((s, r) => s + r.cost, 0);
   const monthsWithSpend = groupByMonth(expenseRows).length || 1;
   const avgMonthlySpend = spendTotal / monthsWithSpend;
@@ -67,11 +84,7 @@ export default async function BudgetOverviewPage({
     cash?.currentBalance != null && avgMonthlySpend > 0
       ? cash.currentBalance / avgMonthlySpend
       : null;
-  const categoryBreakdown = groupByCategory(expenseRows).filter((c) => c.total > 0);
-
-  const grantsCount = grid
-    ? (await getFundingSources(grid.fiscalYear.id)).length
-    : 0;
+  const fundingBreakdown = groupByFundingSource(expenseRows).filter((c) => c.total > 0);
 
   const unclassified =
     health.find((r) => r.classification === "unclassified")?.count ?? 0;
@@ -85,8 +98,8 @@ export default async function BudgetOverviewPage({
             Budget {year}
           </h1>
           <p className="mt-1 text-sm text-hl-muted">
-            Overview of the {year} fiscal year — cash position, projected
-            receipts, projected disbursements, and reconciliation health.
+            Overview of the {year} fiscal year — cash position, spend by
+            funding source, and runway.
           </p>
         </div>
         <BudgetYearSwitcher year={year} availableYears={availableYears} />
@@ -98,19 +111,17 @@ export default async function BudgetOverviewPage({
         <>
           <CashPositionCard
             year={year}
-            openingBalance={cash?.openingBalance ?? null}
             currentBalance={cash?.currentBalance ?? null}
             credits={cash?.totalCredits ?? 0}
             debits={cash?.totalDebits ?? 0}
             accountsCount={cash?.accountsCount ?? 0}
             transactionsCount={cash?.transactionsCount ?? 0}
-            editable={editable}
           />
 
           {spendTotal > 0 ? (
             <SpendBreakdownCard
               year={year}
-              breakdown={categoryBreakdown}
+              breakdown={fundingBreakdown}
               total={spendTotal}
               avgMonthlySpend={avgMonthlySpend}
               monthsWithSpend={monthsWithSpend}
@@ -125,49 +136,6 @@ export default async function BudgetOverviewPage({
           {pendingApprovals > 0 ? (
             <ApprovalsAlert year={year} count={pendingApprovals} />
           ) : null}
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <QuickCard
-              href={`/budget/${year}/budget`}
-              icon={<Wallet className="h-5 w-5 text-hl-green-600" />}
-              title="Budget grid"
-              value={formatCad(grid.annualTotal)}
-              caption={`Projected disbursements · ${grid.categories.length} categories`}
-            />
-            <QuickCard
-              href={`/budget/${year}/grants`}
-              icon={<Landmark className="h-5 w-5 text-hl-green-600" />}
-              title="Grants & contracts"
-              value={formatCad(revenue?.annualTotal ?? 0)}
-              caption={`${grantsCount} funding source${grantsCount === 1 ? "" : "s"} projected`}
-            />
-            <QuickCard
-              href={`/budget/${year}/bank`}
-              icon={<Banknote className="h-5 w-5 text-hl-green-600" />}
-              title="Bank ledger"
-              value={String(cash?.transactionsCount ?? 0)}
-              caption={
-                cash && cash.accountsCount > 0
-                  ? `${cash.accountsCount} account${cash.accountsCount === 1 ? "" : "s"} · txns imported for ${year}`
-                  : "No accounts yet — import a TD CSV to get started"
-              }
-            />
-            <QuickCard
-              href={`/budget/${year}/reports`}
-              icon={<Inbox className="h-5 w-5 text-hl-green-600" />}
-              title="Expense reports"
-              value={
-                pendingApprovals > 0
-                  ? `${pendingApprovals} pending`
-                  : "Open reports"
-              }
-              caption={
-                pendingApprovals > 0
-                  ? "Awaiting your approval"
-                  : "Draft, submit, approve, and pay reimbursements"
-              }
-            />
-          </div>
         </>
       ) : (
         <div className="hl-card p-6">
@@ -189,44 +157,32 @@ export default async function BudgetOverviewPage({
 
 function CashPositionCard({
   year,
-  openingBalance,
   currentBalance,
   credits,
   debits,
   accountsCount,
   transactionsCount,
-  editable,
 }: {
   year: number;
-  openingBalance: number | null;
   currentBalance: number | null;
   credits: number;
   debits: number;
   accountsCount: number;
   transactionsCount: number;
-  editable: boolean;
 }) {
   const hasBankData = accountsCount > 0 && transactionsCount > 0;
   const net = credits - debits;
   return (
     <section className="hl-card p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-          Cash position
-        </h2>
-        <p className="text-xs text-hl-muted">
-          {hasBankData
-            ? `Derived from ${transactionsCount} bank transaction${transactionsCount === 1 ? "" : "s"} across ${accountsCount} account${accountsCount === 1 ? "" : "s"}.`
-            : "Import a TD CSV to populate credits, debits, and current balance."}
+      <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+        Cash position
+      </h2>
+      {!hasBankData ? (
+        <p className="mt-1 text-xs text-hl-muted">
+          Import a TD CSV to populate credits, debits, and current balance.
         </p>
-      </div>
-      <dl className="mt-4 grid gap-3 sm:grid-cols-4">
-        <Stat
-          icon={<Coins className="h-4 w-4" />}
-          label={`Opening ${year}`}
-          value={openingBalance === null ? "—" : formatCad(openingBalance)}
-          muted={openingBalance === null}
-        />
+      ) : null}
+      <dl className="mt-4 grid gap-3 sm:grid-cols-3">
         <Stat
           icon={<ArrowDownRight className="h-4 w-4 text-hl-green-700" />}
           label="YTD credits"
@@ -255,26 +211,16 @@ function CashPositionCard({
           </span>
         </p>
       ) : null}
-
-      {editable ? (
-        <div className="mt-5 border-t border-hl-border pt-4">
-          <OpeningBalanceForm year={year} openingBalance={openingBalance} />
-        </div>
-      ) : null}
     </section>
   );
 }
 
-const PIE_COLORS = [
-  "#2f6f4f", // hl-green-700
-  "#4f9d6d", // hl-green-500
-  "#8fc79f", // hl-green-300
-  "#c99a3c", // amber
-  "#b56576", // rose
-  "#5b7ba3", // slate blue
-  "#8a6fb0", // violet
-  "#9a9a9a", // gray — "Other"
-];
+type FundingSlice = {
+  fundingSourceId: string | null;
+  fundingSourceName: string;
+  fundingSourceKind: string | null;
+  total: number;
+};
 
 function SpendBreakdownCard({
   year,
@@ -286,30 +232,40 @@ function SpendBreakdownCard({
   runwayMonths,
 }: {
   year: number;
-  breakdown: Array<{ categoryCode: string; categoryName: string; total: number }>;
+  breakdown: FundingSlice[];
   total: number;
   avgMonthlySpend: number;
   monthsWithSpend: number;
   currentBalance: number | null;
   runwayMonths: number | null;
 }) {
-  // Keep the chart legible: top 6 categories + an "Other" bucket for the rest.
-  const MAX_SLICES = 6;
-  const sorted = [...breakdown].sort((a, b) => b.total - a.total);
-  const top = sorted.slice(0, MAX_SLICES);
-  const restTotal = sorted.slice(MAX_SLICES).reduce((s, c) => s + c.total, 0);
-  const slices =
-    restTotal > 0
-      ? [...top, { categoryCode: "other", categoryName: "Other categories", total: restTotal }]
-      : top;
+  const kindTotals = new Map<string, number>();
+  const byKind = new Map<string, FundingSlice[]>();
+  for (const s of breakdown) {
+    const kind = s.fundingSourceKind ?? "untagged";
+    kindTotals.set(kind, (kindTotals.get(kind) ?? 0) + s.total);
+    const list = byKind.get(kind) ?? [];
+    list.push(s);
+    byKind.set(kind, list);
+  }
+
+  const kindSlices = KIND_ORDER.filter((k) => (kindTotals.get(k) ?? 0) > 0).map(
+    (kind) => ({
+      kind,
+      label: KIND_LABEL[kind],
+      total: kindTotals.get(kind) ?? 0,
+      color: KIND_COLOR[kind],
+      hint: KIND_HINT[kind],
+    }),
+  );
 
   let cursor = 0;
-  const stops = slices.map((s, i) => {
+  const stops = kindSlices.map((s) => {
     const pct = (s.total / total) * 100;
     const start = cursor;
     const end = cursor + pct;
     cursor = end;
-    return { ...s, color: PIE_COLORS[i % PIE_COLORS.length], start, end, pct };
+    return { ...s, start, end, pct };
   });
   const gradient = `conic-gradient(${stops
     .map((s) => `${s.color} ${s.start}% ${s.end}%`)
@@ -322,38 +278,62 @@ function SpendBreakdownCard({
         ? "120+ mo"
         : `${runwayMonths.toFixed(1)} mo`;
   const runwayTone =
-    runwayMonths === null ? "" : runwayMonths < 6 ? "text-red-700" : runwayMonths < 12 ? "text-amber-700" : "text-hl-ink";
+    runwayMonths === null
+      ? ""
+      : runwayMonths < 6
+        ? "text-red-700"
+        : runwayMonths < 12
+          ? "text-amber-700"
+          : "text-hl-ink";
 
   return (
     <section className="hl-card grid gap-6 p-5 md:grid-cols-2">
       <div>
         <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-          Spend breakdown
+          Spend by funding source
         </h2>
         <p className="mt-1 text-xs text-hl-muted">
-          {formatCad(total)} spent in {year} across classified bank expenses
-          and paid expense reports.
+          {formatCad(total)} spent in {year}, grouped by grant vs service
+          contract so you can see restricted vs more flexible spend.
         </p>
-        <div className="mt-4 flex flex-wrap items-center gap-5">
+        <div className="mt-4 flex flex-wrap items-start gap-5">
           <div
             className="h-32 w-32 shrink-0 rounded-full"
             style={{ backgroundImage: gradient }}
             role="img"
-            aria-label="Pie chart of expense breakdown by category"
+            aria-label="Pie chart of expense breakdown by funding source kind"
           />
-          <ul className="flex-1 space-y-1.5 text-xs">
+          <ul className="flex-1 space-y-3 text-xs">
             {stops.map((s) => (
-              <li key={s.categoryCode} className="flex items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: s.color }}
-                />
-                <span className="flex-1 truncate text-hl-ink">
-                  {s.categoryName}
-                </span>
-                <span className="shrink-0 tabular-nums text-hl-muted">
-                  {formatCad(s.total)} · {s.pct.toFixed(0)}%
-                </span>
+              <li key={s.kind}>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  <span className="flex-1 font-medium text-hl-ink">{s.label}</span>
+                  <span className="shrink-0 tabular-nums text-hl-muted">
+                    {formatCad(s.total)} · {s.pct.toFixed(0)}%
+                  </span>
+                </div>
+                {s.hint ? (
+                  <p className="mt-0.5 pl-[18px] text-[11px] text-hl-muted">
+                    {s.hint}
+                  </p>
+                ) : null}
+                <ul className="mt-1 space-y-0.5 pl-[18px] text-hl-muted">
+                  {(byKind.get(s.kind) ?? []).map((src) => (
+                    <li
+                      key={src.fundingSourceId ?? "untagged"}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">{src.fundingSourceName}</span>
+                      <span className="shrink-0 tabular-nums">
+                        {formatCad(src.total)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -450,36 +430,6 @@ function ReconciliationAlert({
         </Link>
       </div>
     </section>
-  );
-}
-
-function QuickCard({
-  href,
-  icon,
-  title,
-  value,
-  caption,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  title: string;
-  value: string;
-  caption: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="hl-card block p-5 transition hover:border-hl-green-600 hover:shadow-md"
-    >
-      <div className="flex items-center gap-2">
-        {icon}
-        <h3 className="text-sm font-semibold text-hl-ink">{title}</h3>
-      </div>
-      <p className="mt-2 text-2xl font-semibold tabular-nums text-hl-ink">
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-hl-muted">{caption}</p>
-    </Link>
   );
 }
 

@@ -40,6 +40,8 @@ export type ExpenseLedgerRow = {
   budgetLineName: string | null;
   fundingSourceId: string | null;
   fundingSourceName: string | null;
+  /** grant | service_contract | donation | other — null when untagged. */
+  fundingSourceKind: string | null;
   cost: number;
   /** True when the row has no budget line yet (unclassified bank txn). */
   pending: boolean;
@@ -180,6 +182,7 @@ export async function getExpenseLedger(
             categoryId: budgetLines.categoryId,
             fundingSourceId: bankTransactions.fundingSourceId,
             fundingSourceName: fundingSources.name,
+            fundingSourceKind: fundingSources.kind,
             accountName: bankAccounts.name,
           })
           .from(bankTransactions)
@@ -239,6 +242,7 @@ export async function getExpenseLedger(
             categoryId: budgetLines.categoryId,
             fundingSourceId: bankTransactionSplits.fundingSourceId,
             fundingSourceName: fundingSources.name,
+            fundingSourceKind: fundingSources.kind,
             accountName: bankAccounts.name,
           })
           .from(bankTransactionSplits)
@@ -300,6 +304,7 @@ export async function getExpenseLedger(
             categoryId: budgetLines.categoryId,
             fundingSourceId: expenseReportLines.fundingSourceId,
             fundingSourceName: fundingSources.name,
+            fundingSourceKind: fundingSources.kind,
           })
           .from(expenseReportLines)
           .innerJoin(
@@ -362,6 +367,7 @@ export async function getExpenseLedger(
           budgetLineName: r.budgetLineName,
           fundingSourceId: r.fundingSourceId,
           fundingSourceName: r.fundingSourceName,
+          fundingSourceKind: r.fundingSourceKind ?? null,
           cost: Number(r.debit ?? 0),
           pending: isUnclassified,
           source: {
@@ -395,6 +401,7 @@ export async function getExpenseLedger(
         budgetLineName: r.budgetLineName,
         fundingSourceId: r.fundingSourceId,
         fundingSourceName: r.fundingSourceName,
+        fundingSourceKind: r.fundingSourceKind ?? null,
         cost: Number(r.amount ?? 0),
         pending: false,
         source: {
@@ -419,6 +426,7 @@ export async function getExpenseLedger(
         budgetLineName: r.budgetLineName,
         fundingSourceId: r.fundingSourceId,
         fundingSourceName: r.fundingSourceName,
+        fundingSourceKind: r.fundingSourceKind ?? null,
         cost: Number(r.cost ?? 0),
         pending: false,
         source: {
@@ -469,23 +477,29 @@ export function groupByMonth(rows: ExpenseLedgerRow[]): Array<{
     .sort((a, b) => (a.month < b.month ? -1 : 1));
 }
 
-/** Group into a category breakdown for the summary pie chart. */
-export function groupByCategory(rows: ExpenseLedgerRow[]): Array<{
-  categoryCode: string;
-  categoryName: string;
+/** Group spend by individual funding source for the overview pie. */
+export function groupByFundingSource(rows: ExpenseLedgerRow[]): Array<{
+  fundingSourceId: string | null;
+  fundingSourceName: string;
+  fundingSourceKind: string | null;
   total: number;
 }> {
-  const map = new Map<string, { categoryName: string; total: number }>();
+  const map = new Map<
+    string,
+    { fundingSourceId: string | null; fundingSourceName: string; fundingSourceKind: string | null; total: number }
+  >();
   for (const r of rows) {
-    const code = r.categoryCode ?? "—";
-    const name = r.categoryName ?? "Uncategorized";
-    const bucket = map.get(code) ?? { categoryName: name, total: 0 };
+    const key = r.fundingSourceId ?? "__untagged__";
+    const bucket = map.get(key) ?? {
+      fundingSourceId: r.fundingSourceId,
+      fundingSourceName: r.fundingSourceName ?? "Untagged",
+      fundingSourceKind: r.fundingSourceKind,
+      total: 0,
+    };
     bucket.total += r.cost;
-    map.set(code, bucket);
+    map.set(key, bucket);
   }
-  return Array.from(map.entries())
-    .map(([categoryCode, v]) => ({ categoryCode, ...v }))
-    .sort((a, b) => b.total - a.total);
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
 }
 
 /** CSV serialisation mirroring the columns Ali's Excel "Expenses" sheet uses. */
