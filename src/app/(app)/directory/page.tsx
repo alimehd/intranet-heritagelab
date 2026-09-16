@@ -1,3 +1,6 @@
+import { notFound } from "next/navigation";
+import { auth } from "@/auth";
+import { isGuestEmail } from "@/lib/allowlist";
 import { BookUser, Building2, Mail, Phone } from "lucide-react";
 
 export const metadata = { title: "Directory — Heritage Lab" };
@@ -21,7 +24,10 @@ const planned = [
   },
 ];
 
-export default function DirectoryPage() {
+export default async function DirectoryPage() {
+  const session = await auth();
+  if (isGuestEmail(session?.user?.email)) notFound();
+
   return (
     <div className="space-y-8">
       <div>

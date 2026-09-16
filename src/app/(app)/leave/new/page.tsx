@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { isGuestEmail } from "@/lib/allowlist";
 import { findLeaveEmployee } from "@/lib/leave/people";
 import { getBalancesFor } from "@/lib/leave/queries";
 import { LEAVE_POLICY } from "@/lib/leave/schema";
@@ -10,6 +12,7 @@ export const metadata = { title: "Book Time Off — Heritage Lab" };
 
 export default async function NewLeavePage() {
   const session = await auth();
+  if (isGuestEmail(session?.user?.email)) notFound();
   const employee = findLeaveEmployee(session?.user?.email);
   const leaveYear = new Date().getUTCFullYear();
 

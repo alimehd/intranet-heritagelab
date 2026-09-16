@@ -26,6 +26,8 @@ export function getClaimsRecipient(): string {
  */
 const DEFAULT_APPROVER_OVERRIDES: Record<string, string> = {
   "ali.mehdi@heritagelab.ca": "elias.moukannas@heritagelab.ca",
+  // External guest travel claims — Ali reviews before payments processes.
+  "jacob.seguin@mila.quebec": "ali.mehdi@heritagelab.ca",
 };
 
 function getApproverOverrides(): Record<string, string> {

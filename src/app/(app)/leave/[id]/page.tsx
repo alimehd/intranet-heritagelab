@@ -6,6 +6,7 @@ import { leaveRequests } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import { LeaveStatusBadge } from "@/components/LeaveStatusBadge";
+import { isGuestEmail } from "@/lib/allowlist";
 import {
   formatDays,
   formatLong,
@@ -35,6 +36,7 @@ export default async function LeaveDetailPage({
   const { id } = await params;
   const { submitted } = await searchParams;
   const session = await auth();
+  if (isGuestEmail(session?.user?.email)) notFound();
 
   const [row] = await db
     .select()

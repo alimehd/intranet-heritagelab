@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isBoardMember } from "@/lib/roles";
+import { isGuestEmail } from "@/lib/allowlist";
 import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
 import { formatDays } from "@/lib/leave/dates";
 import { canApproveLeave, findLeaveEmployee } from "@/lib/leave/people";
@@ -26,6 +27,7 @@ export const metadata = { title: "Dashboard — Heritage Lab" };
 export default async function DashboardPage() {
   const session = await auth();
   const userId = session!.user.id;
+  const guest = isGuestEmail(session?.user?.email);
 
   const recent = await db
     .select()
@@ -40,13 +42,13 @@ export default async function DashboardPage() {
 
   const boardMember = isBoardMember(session?.user?.email);
 
-  const leaveEmployee = findLeaveEmployee(session?.user?.email);
+  const leaveEmployee = guest ? null : findLeaveEmployee(session?.user?.email);
   const leaveYear = new Date().getUTCFullYear();
   const [leaveBalances, pendingLeave] = await Promise.all([
     leaveEmployee
       ? getBalancesFor(leaveEmployee.email, leaveYear)
       : Promise.resolve(null),
-    canApproveLeave(session?.user?.email)
+    !guest && canApproveLeave(session?.user?.email)
       ? getTeamRequestsFor(leaveYear).then((rows) =>
           rows.filter((r) => r.status === "pending"),
         )
@@ -60,7 +62,9 @@ export default async function DashboardPage() {
           Welcome{session?.user?.name ? `, ${session.user.name.split(" ")[0]}` : ""}
         </h1>
         <p className="mt-1 text-sm text-hl-muted">
-          Submit travel claims and access internal resources.
+          {guest
+            ? "Submit and track your travel expense claims."
+            : "Submit travel claims and access internal resources."}
         </p>
       </div>
 
@@ -69,7 +73,11 @@ export default async function DashboardPage() {
           href="/travel-claims/new"
           icon={<FileText className="h-5 w-5" />}
           title="New travel claim"
-          description="Create and submit an expense claim, delivered straight to payments."
+          description={
+            guest
+              ? "Create and submit a travel expense claim for approval."
+              : "Create and submit an expense claim, delivered straight to payments."
+          }
         />
         <ActionCard
           href="/travel-claims"
@@ -77,33 +85,37 @@ export default async function DashboardPage() {
           title="My claims"
           description="Review or cancel claims you've submitted."
         />
-        <ActionCard
-          href="/leave"
-          icon={<CalendarDays className="h-5 w-5" />}
-          title="Vacation & sick days"
-          description="Book time off, report sick days, and see the paid holiday calendar."
-        />
-        <ActionCard
-          href="/policies"
-          icon={<BookOpen className="h-5 w-5" />}
-          title="Resources"
-          description="Business Travel Policy and shared documents."
-        />
-        <ActionCard
-          href="/directory"
-          icon={<BookUser className="h-5 w-5" />}
-          title="Directory"
-          description="Staff and board contact list (coming soon)."
-        />
-        {boardMember ? (
-          <ActionCard
-            href={BOARD_GENERAL_FOLDER.href}
-            external
-            icon={<Users className="h-5 w-5" />}
-            title="Board folder"
-            description="Meeting packages, minutes, and governance documents."
-          />
-        ) : null}
+        {guest ? null : (
+          <>
+            <ActionCard
+              href="/leave"
+              icon={<CalendarDays className="h-5 w-5" />}
+              title="Vacation & sick days"
+              description="Book time off, report sick days, and see the paid holiday calendar."
+            />
+            <ActionCard
+              href="/policies"
+              icon={<BookOpen className="h-5 w-5" />}
+              title="Resources"
+              description="Business Travel Policy and shared documents."
+            />
+            <ActionCard
+              href="/directory"
+              icon={<BookUser className="h-5 w-5" />}
+              title="Directory"
+              description="Staff and board contact list (coming soon)."
+            />
+            {boardMember ? (
+              <ActionCard
+                href={BOARD_GENERAL_FOLDER.href}
+                external
+                icon={<Users className="h-5 w-5" />}
+                title="Board folder"
+                description="Meeting packages, minutes, and governance documents."
+              />
+            ) : null}
+          </>
+        )}
       </div>
 
       {pendingLeave.length > 0 ? (

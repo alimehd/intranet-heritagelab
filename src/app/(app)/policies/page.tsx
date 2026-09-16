@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { notFound } from "next/navigation";
+import { isGuestEmail } from "@/lib/allowlist";
 import { isBoardMember } from "@/lib/roles";
 import {
   BOARD_GENERAL_FOLDER,
@@ -11,6 +13,7 @@ export const metadata = { title: "Resources — Heritage Lab" };
 
 export default async function PoliciesPage() {
   const session = await auth();
+  if (isGuestEmail(session?.user?.email)) notFound();
   const boardMember = isBoardMember(session?.user?.email);
 
   return (

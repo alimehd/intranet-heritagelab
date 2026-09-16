@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { notFound } from "next/navigation";
 import { CalendarPlus, CalendarDays, Inbox } from "lucide-react";
 import { LeaveStatusBadge } from "@/components/LeaveStatusBadge";
 import { formatDays, formatLong, formatRange, pluralDays } from "@/lib/leave/dates";
@@ -17,6 +18,7 @@ import {
   type LeaveType,
 } from "@/lib/leave/schema";
 import type { LeaveRequest } from "@/lib/db/schema";
+import { isGuestEmail } from "@/lib/allowlist";
 import { LeaveTabs, LeaveYearSwitcher, resolveYear } from "./LeaveNav";
 
 export const metadata = { title: "Vacation & Sick Days — Heritage Lab" };
@@ -27,6 +29,8 @@ export default async function LeavePage({
   searchParams: Promise<{ year?: string }>;
 }) {
   const session = await auth();
+  if (isGuestEmail(session?.user?.email)) notFound();
+
   const { year: yearParam } = await searchParams;
 
   const currentYear = new Date().getUTCFullYear();

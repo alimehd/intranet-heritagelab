@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { notFound } from "next/navigation";
 import { formatLong } from "@/lib/leave/dates";
 import {
   buildCalendarDays,
@@ -7,6 +8,7 @@ import {
   countCalendarDays,
   type CalendarDay,
 } from "@/lib/leave/calendar";
+import { isGuestEmail } from "@/lib/allowlist";
 import { canApproveLeave, findLeaveEmployee } from "@/lib/leave/people";
 import { getRequestsFor, getTeamRequestsFor } from "@/lib/leave/queries";
 import { LeaveTabs, LeaveYearSwitcher, resolveYear } from "../LeaveNav";
@@ -21,6 +23,7 @@ export default async function LeaveCalendarPage({
   searchParams: Promise<{ year?: string; view?: string }>;
 }) {
   const session = await auth();
+  if (isGuestEmail(session?.user?.email)) notFound();
   const { year: yearParam, view } = await searchParams;
 
   const currentYear = new Date().getUTCFullYear();
