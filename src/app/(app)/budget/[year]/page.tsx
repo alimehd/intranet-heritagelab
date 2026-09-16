@@ -8,6 +8,7 @@ import {
   Banknote,
   AlertCircle,
   Inbox,
+  FileDown,
 } from "lucide-react";
 import {
   canApproveExpenseReports,
@@ -102,7 +103,20 @@ export default async function BudgetOverviewPage({
             funding source, and runway.
           </p>
         </div>
-        <BudgetYearSwitcher year={year} availableYears={availableYears} />
+        <div className="flex items-center gap-2">
+          {grid ? (
+            <Link
+              href={`/budget/${year}/financial-report/pdf`}
+              target="_blank"
+              className="hl-btn-secondary"
+              title="Funder-facing financial report — cash position, revenue by source, expenses by category. Good for grant applications."
+            >
+              <FileDown className="h-4 w-4" />
+              Financial report (PDF)
+            </Link>
+          ) : null}
+          <BudgetYearSwitcher year={year} availableYears={availableYears} />
+        </div>
       </div>
 
       <BudgetTabs year={year} active="overview" />
