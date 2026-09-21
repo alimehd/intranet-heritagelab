@@ -53,9 +53,9 @@ export const expenseReportLineInputSchema = z.object({
   cost: z.coerce
     .number()
     .finite()
-    .refine((v) => v !== 0, "Cost can't be zero.")
     .min(-1_000_000, "That looks too large.")
-    .max(1_000_000, "That looks too large."),
+    .max(1_000_000, "That looks too large.")
+    .refine((v) => v !== 0, "Cost can't be zero."),
 });
 
 export type ExpenseReportLineInput = z.infer<typeof expenseReportLineInputSchema>;
