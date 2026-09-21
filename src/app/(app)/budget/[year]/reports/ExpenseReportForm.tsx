@@ -360,7 +360,6 @@ export function ExpenseReportForm({
                     <input
                       id={`cost-${line.clientId}`}
                       type="number"
-                      min="0"
                       step="0.01"
                       className="hl-input"
                       value={line.cost}
@@ -370,6 +369,9 @@ export function ExpenseReportForm({
                       disabled={!editable || pending}
                       required
                     />
+                    <p className="mt-1 text-xs text-hl-muted">
+                      Use a negative amount for a refund/credit.
+                    </p>
                     {fieldError(`${linePathPrefix}.cost`) ? (
                       <p className="mt-1 text-xs text-red-700">
                         {fieldError(`${linePathPrefix}.cost`)}
