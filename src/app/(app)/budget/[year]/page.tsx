@@ -19,10 +19,12 @@ import {
   getBudgetGrid,
   getCashPosition,
   getFiscalYears,
+  getFundingSources,
   getReconciliationHealth,
 } from "@/lib/budget/queries";
 import { countPendingApprovals } from "@/lib/budget/er-queries";
-import { getExpenseLedger, groupByFundingSource, groupByMonth } from "@/lib/budget/ledger";
+import { getExpenseLedger, groupByMonth } from "@/lib/budget/ledger";
+import type { FundingSource } from "@/lib/db/schema";
 import { BudgetTabs, BudgetYearSwitcher, parseYearParam } from "../BudgetNav";
 
 export const metadata = { title: "Budget — Heritage Lab" };
@@ -77,6 +79,7 @@ export default async function BudgetOverviewPage({
       getExpenseLedger({ year, includeUnclassified: false }),
     ]);
   const availableYears = allYears.map((y) => y.year);
+  const fundingSources = grid ? await getFundingSources(grid.fiscalYear.id) : [];
 
   const spendTotal = expenseRows.reduce((s, r) => s + r.cost, 0);
   const monthsWithSpend = groupByMonth(expenseRows).length || 1;
@@ -85,7 +88,10 @@ export default async function BudgetOverviewPage({
     cash?.currentBalance != null && avgMonthlySpend > 0
       ? cash.currentBalance / avgMonthlySpend
       : null;
-  const fundingBreakdown = groupByFundingSource(expenseRows).filter((c) => c.total > 0);
+  const fundingTotal = fundingSources.reduce(
+    (s, f) => s + Number(f.contractValue),
+    0,
+  );
 
   const unclassified =
     health.find((r) => r.classification === "unclassified")?.count ?? 0;
@@ -99,8 +105,8 @@ export default async function BudgetOverviewPage({
             Budget {year}
           </h1>
           <p className="mt-1 text-sm text-hl-muted">
-            Overview of the {year} fiscal year — cash position, spend by
-            funding source, and runway.
+            Overview of the {year} fiscal year — cash position, funding by
+            type, and runway.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -132,11 +138,11 @@ export default async function BudgetOverviewPage({
             transactionsCount={cash?.transactionsCount ?? 0}
           />
 
-          {spendTotal > 0 ? (
-            <SpendBreakdownCard
+          {fundingTotal > 0 || spendTotal > 0 ? (
+            <FundingOverviewCard
               year={year}
-              breakdown={fundingBreakdown}
-              total={spendTotal}
+              fundingSources={fundingSources}
+              fundingTotal={fundingTotal}
               avgMonthlySpend={avgMonthlySpend}
               monthsWithSpend={monthsWithSpend}
               currentBalance={cash?.currentBalance ?? null}
@@ -229,34 +235,27 @@ function CashPositionCard({
   );
 }
 
-type FundingSlice = {
-  fundingSourceId: string | null;
-  fundingSourceName: string;
-  fundingSourceKind: string | null;
-  total: number;
-};
-
-function SpendBreakdownCard({
+function FundingOverviewCard({
   year,
-  breakdown,
-  total,
+  fundingSources,
+  fundingTotal,
   avgMonthlySpend,
   monthsWithSpend,
   currentBalance,
   runwayMonths,
 }: {
   year: number;
-  breakdown: FundingSlice[];
-  total: number;
+  fundingSources: FundingSource[];
+  fundingTotal: number;
   avgMonthlySpend: number;
   monthsWithSpend: number;
   currentBalance: number | null;
   runwayMonths: number | null;
 }) {
   const kindTotals = new Map<string, number>();
-  for (const s of breakdown) {
-    const kind = s.fundingSourceKind ?? "untagged";
-    kindTotals.set(kind, (kindTotals.get(kind) ?? 0) + s.total);
+  for (const f of fundingSources) {
+    const kind = f.kind ?? "untagged";
+    kindTotals.set(kind, (kindTotals.get(kind) ?? 0) + Number(f.contractValue));
   }
 
   const kindSlices = KIND_ORDER.filter((k) => (kindTotals.get(k) ?? 0) > 0).map(
@@ -266,12 +265,23 @@ function SpendBreakdownCard({
         kind,
         label: KIND_LABEL[kind],
         total: kindTotal,
-        pct: total > 0 ? (kindTotal / total) * 100 : 0,
+        pct: fundingTotal > 0 ? (kindTotal / fundingTotal) * 100 : 0,
         color: KIND_COLOR[kind],
         hint: KIND_HINT[kind],
       };
     },
   );
+
+  let cursor = 0;
+  const stops = kindSlices.map((s) => {
+    const start = cursor;
+    const end = cursor + s.pct;
+    cursor = end;
+    return { ...s, start, end };
+  });
+  const gradient = `conic-gradient(${stops
+    .map((s) => `${s.color} ${s.start}% ${s.end}%`)
+    .join(", ")})`;
 
   const runwayLabel =
     runwayMonths === null
@@ -292,36 +302,49 @@ function SpendBreakdownCard({
     <section className="hl-card grid gap-6 p-5 md:grid-cols-2">
       <div>
         <h2 className="text-base font-semibold tracking-tight text-hl-ink">
-          Spend by funding source
+          Funding by type
         </h2>
         <p className="mt-1 text-xs text-hl-muted">
-          {formatCad(total)} spent in {year}, grouped by grant vs service
-          contract so you can see restricted vs more flexible spend.
+          {formatCad(fundingTotal)} in total funding for {year}, broken down
+          by grant vs service contract (not spend).
         </p>
-        <ul className="mt-4 space-y-4">
-          {kindSlices.map((s) => (
-            <li key={s.kind}>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-medium text-hl-ink">{s.label}</span>
-                <span className="shrink-0 tabular-nums text-sm font-semibold text-hl-ink">
-                  {formatCad(s.total)}{" "}
-                  <span className="font-normal text-hl-muted">
-                    ({s.pct.toFixed(0)}%)
-                  </span>
-                </span>
-              </div>
-              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-hl-cream">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${s.pct}%`, backgroundColor: s.color }}
-                />
-              </div>
-              {s.hint ? (
-                <p className="mt-1 text-[11px] text-hl-muted">{s.hint}</p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        {kindSlices.length > 0 ? (
+          <div className="mt-4 flex flex-wrap items-start gap-5">
+            <div
+              className="h-32 w-32 shrink-0 rounded-full"
+              style={{ backgroundImage: gradient }}
+              role="img"
+              aria-label="Pie chart of total funding broken down by funding source type"
+            />
+            <ul className="flex-1 space-y-3 text-xs">
+              {stops.map((s) => (
+                <li key={s.kind}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: s.color }}
+                    />
+                    <span className="flex-1 font-medium text-hl-ink">
+                      {s.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-hl-muted">
+                      {formatCad(s.total)} · {s.pct.toFixed(0)}%
+                    </span>
+                  </div>
+                  {s.hint ? (
+                    <p className="mt-0.5 pl-[18px] text-[11px] text-hl-muted">
+                      {s.hint}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-hl-muted">
+            No funding sources configured for {year} yet.
+          </p>
+        )}
       </div>
 
       <div className="border-t border-hl-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
