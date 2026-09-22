@@ -254,36 +254,24 @@ function SpendBreakdownCard({
   runwayMonths: number | null;
 }) {
   const kindTotals = new Map<string, number>();
-  const byKind = new Map<string, FundingSlice[]>();
   for (const s of breakdown) {
     const kind = s.fundingSourceKind ?? "untagged";
     kindTotals.set(kind, (kindTotals.get(kind) ?? 0) + s.total);
-    const list = byKind.get(kind) ?? [];
-    list.push(s);
-    byKind.set(kind, list);
   }
 
   const kindSlices = KIND_ORDER.filter((k) => (kindTotals.get(k) ?? 0) > 0).map(
-    (kind) => ({
-      kind,
-      label: KIND_LABEL[kind],
-      total: kindTotals.get(kind) ?? 0,
-      color: KIND_COLOR[kind],
-      hint: KIND_HINT[kind],
-    }),
+    (kind) => {
+      const kindTotal = kindTotals.get(kind) ?? 0;
+      return {
+        kind,
+        label: KIND_LABEL[kind],
+        total: kindTotal,
+        pct: total > 0 ? (kindTotal / total) * 100 : 0,
+        color: KIND_COLOR[kind],
+        hint: KIND_HINT[kind],
+      };
+    },
   );
-
-  let cursor = 0;
-  const stops = kindSlices.map((s) => {
-    const pct = (s.total / total) * 100;
-    const start = cursor;
-    const end = cursor + pct;
-    cursor = end;
-    return { ...s, start, end, pct };
-  });
-  const gradient = `conic-gradient(${stops
-    .map((s) => `${s.color} ${s.start}% ${s.end}%`)
-    .join(", ")})`;
 
   const runwayLabel =
     runwayMonths === null
@@ -310,48 +298,30 @@ function SpendBreakdownCard({
           {formatCad(total)} spent in {year}, grouped by grant vs service
           contract so you can see restricted vs more flexible spend.
         </p>
-        <div className="mt-4 flex flex-wrap items-start gap-5">
-          <div
-            className="h-32 w-32 shrink-0 rounded-full"
-            style={{ backgroundImage: gradient }}
-            role="img"
-            aria-label="Pie chart of expense breakdown by funding source kind"
-          />
-          <ul className="flex-1 space-y-3 text-xs">
-            {stops.map((s) => (
-              <li key={s.kind}>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: s.color }}
-                  />
-                  <span className="flex-1 font-medium text-hl-ink">{s.label}</span>
-                  <span className="shrink-0 tabular-nums text-hl-muted">
-                    {formatCad(s.total)} · {s.pct.toFixed(0)}%
+        <ul className="mt-4 space-y-4">
+          {kindSlices.map((s) => (
+            <li key={s.kind}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-medium text-hl-ink">{s.label}</span>
+                <span className="shrink-0 tabular-nums text-sm font-semibold text-hl-ink">
+                  {formatCad(s.total)}{" "}
+                  <span className="font-normal text-hl-muted">
+                    ({s.pct.toFixed(0)}%)
                   </span>
-                </div>
-                {s.hint ? (
-                  <p className="mt-0.5 pl-[18px] text-[11px] text-hl-muted">
-                    {s.hint}
-                  </p>
-                ) : null}
-                <ul className="mt-1 space-y-0.5 pl-[18px] text-hl-muted">
-                  {(byKind.get(s.kind) ?? []).map((src) => (
-                    <li
-                      key={src.fundingSourceId ?? "untagged"}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <span className="truncate">{src.fundingSourceName}</span>
-                      <span className="shrink-0 tabular-nums">
-                        {formatCad(src.total)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        </div>
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-hl-cream">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${s.pct}%`, backgroundColor: s.color }}
+                />
+              </div>
+              {s.hint ? (
+                <p className="mt-1 text-[11px] text-hl-muted">{s.hint}</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div className="border-t border-hl-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
