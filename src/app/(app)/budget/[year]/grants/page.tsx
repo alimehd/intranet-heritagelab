@@ -13,7 +13,7 @@ import {
   getFundingSourceSpentInPeriod,
   getFundingSources,
 } from "@/lib/budget/queries";
-import type { FundingSource } from "@/lib/db/schema";
+import { FUNDING_SOURCE_STATUSES, type FundingSource } from "@/lib/db/schema";
 import {
   BudgetTabs,
   BudgetYearSwitcher,
@@ -95,6 +95,17 @@ export default async function GrantsPage({
   );
   const statsById = new Map(stats.map((s) => [s.id, s]));
 
+  // Contracts/grants still in progress ("active") should surface before
+  // the ones that have wrapped up or fallen through, so status is the
+  // primary sort key. FUNDING_SOURCE_STATUSES is already ordered
+  // active → completed → cancelled, so we can reuse its index directly.
+  const statusRank = new Map<string, number>(
+    FUNDING_SOURCE_STATUSES.map((s, i) => [s, i]),
+  );
+  const sortedSources = [...sources].sort(
+    (a, b) => (statusRank.get(a.status) ?? 99) - (statusRank.get(b.status) ?? 99),
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -144,7 +155,7 @@ export default async function GrantsPage({
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {sources.map((s) => (
+          {sortedSources.map((s) => (
             <FundingSourceCard
               key={s.id}
               year={year}
