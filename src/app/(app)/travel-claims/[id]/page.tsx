@@ -11,8 +11,10 @@ import {
   travelClaimSchema,
 } from "@/lib/claims/schema";
 import { StatusBadge } from "@/components/StatusBadge";
-import { isBoardMember } from "@/lib/roles";
+import { getApproverFor } from "@/lib/email";
+import { isBoardMember, normalizeEmail } from "@/lib/roles";
 import { CancelClaimForm } from "./CancelClaimForm";
+import { ApproveClaimForm } from "./ApproveClaimForm";
 
 type SearchParams = Promise<{ submitted?: string }>;
 type Params = Promise<{ id: string }>;
@@ -39,6 +41,12 @@ export default async function ClaimDetailPage({
   if (!row || (row.userId !== session!.user.id && !boardMember)) notFound();
 
   const cancelled = row.status === "cancelled";
+  const requiredApprover = getApproverFor(row.submitterEmail);
+  const isDesignatedApprover =
+    requiredApprover !== null &&
+    normalizeEmail(requiredApprover) === normalizeEmail(session?.user?.email);
+  const awaitingApproval =
+    !cancelled && requiredApprover !== null && !row.approvedAt;
 
   const parsed = travelClaimSchema.safeParse(row.payload);
   const claim = parsed.success ? parsed.data : null;
@@ -99,6 +107,21 @@ export default async function ClaimDetailPage({
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <strong>Email error:</strong> {row.emailError}
         </div>
+      ) : null}
+
+      {row.approvedAt ? (
+        <div className="rounded-md border border-hl-green-200 bg-hl-green-50 px-4 py-3 text-sm text-hl-green-800">
+          Approved by {row.approvedBy ?? "the approver"} on{" "}
+          {row.approvedAt.toLocaleString("en-CA")}.
+        </div>
+      ) : awaitingApproval && !isDesignatedApprover ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Awaiting approval from {requiredApprover}.
+        </div>
+      ) : null}
+
+      {isDesignatedApprover && awaitingApproval ? (
+        <ApproveClaimForm claimId={row.id} />
       ) : null}
 
       <section className="hl-card p-6">

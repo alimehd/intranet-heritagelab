@@ -174,10 +174,6 @@ function RevenueTable({
           <h2 className="text-base font-semibold tracking-tight text-hl-ink">
             Projected receipts (grants, contracts, donations)
           </h2>
-          <p className="mt-0.5 text-xs text-hl-muted">
-            &ldquo;Actual&rdquo; is money actually received this year, from
-            classified bank deposits.
-          </p>
         </div>
         <div className="text-xs text-hl-muted">
           Annual{" "}

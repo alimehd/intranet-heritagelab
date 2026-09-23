@@ -87,6 +87,14 @@ export const travelClaims = pgTable("travel_claim", {
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   cancelledBy: text("cancelled_by"),
   cancelReason: text("cancel_reason"),
+  /**
+   * Sign-off from the claim's designated approver (see CLAIM_APPROVER_OVERRIDES
+   * in lib/email.ts — e.g. Elias approves Ali's claims). Null until approved.
+   * Claims with no approver override (most staff) never need this — their
+   * claim goes straight to payments and is never "pending approval".
+   */
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  approvedBy: text("approved_by"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

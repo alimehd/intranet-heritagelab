@@ -24,7 +24,8 @@ import {
 } from "@/lib/budget/queries";
 import { countPendingApprovals } from "@/lib/budget/er-queries";
 import { getExpenseLedger, groupByMonth } from "@/lib/budget/ledger";
-import type { FundingSource } from "@/lib/db/schema";
+import { listPendingTravelClaimApprovals } from "@/lib/claims/queries";
+import type { FundingSource, TravelClaim } from "@/lib/db/schema";
 import { BudgetTabs, BudgetYearSwitcher, parseYearParam } from "../BudgetNav";
 
 export const metadata = { title: "Budget — Heritage Lab" };
@@ -40,8 +41,8 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const KIND_HINT: Record<string, string> = {
-  service_contract: "Earned / more flexible",
-  grant: "Typically restricted",
+  service_contract: "",
+  grant: "",
   donation: "Usually unrestricted",
   other: "",
   untagged: "Not assigned to a source yet",
@@ -67,7 +68,7 @@ export default async function BudgetOverviewPage({
   const year = parseYearParam(yearParam);
   if (year === null) notFound();
 
-  const [allYears, grid, cash, health, pendingApprovals, expenseRows] =
+  const [allYears, grid, cash, health, pendingApprovals, expenseRows, pendingTravelClaims] =
     await Promise.all([
       getFiscalYears(),
       getBudgetGrid(year),
@@ -77,6 +78,7 @@ export default async function BudgetOverviewPage({
         ? countPendingApprovals(normalizeEmail(session?.user?.email ?? ""))
         : Promise.resolve(0),
       getExpenseLedger({ year, includeUnclassified: false }),
+      listPendingTravelClaimApprovals(session?.user?.email),
     ]);
   const availableYears = allYears.map((y) => y.year);
   const fundingSources = grid ? await getFundingSources(grid.fiscalYear.id) : [];
@@ -127,6 +129,13 @@ export default async function BudgetOverviewPage({
 
       <BudgetTabs year={year} active="overview" />
 
+      {pendingApprovals > 0 ? (
+        <ApprovalsAlert year={year} count={pendingApprovals} />
+      ) : null}
+      {pendingTravelClaims.length > 0 ? (
+        <TravelClaimApprovalsAlert claims={pendingTravelClaims} />
+      ) : null}
+
       {grid ? (
         <>
           <CashPositionCard
@@ -145,16 +154,12 @@ export default async function BudgetOverviewPage({
               fundingTotal={fundingTotal}
               avgMonthlySpend={avgMonthlySpend}
               monthsWithSpend={monthsWithSpend}
-              currentBalance={cash?.currentBalance ?? null}
               runwayMonths={runwayMonths}
             />
           ) : null}
 
           {unclassified > 0 ? (
             <ReconciliationAlert year={year} unclassified={unclassified} />
-          ) : null}
-          {pendingApprovals > 0 ? (
-            <ApprovalsAlert year={year} count={pendingApprovals} />
           ) : null}
         </>
       ) : (
@@ -241,7 +246,6 @@ function FundingOverviewCard({
   fundingTotal,
   avgMonthlySpend,
   monthsWithSpend,
-  currentBalance,
   runwayMonths,
 }: {
   year: number;
@@ -249,7 +253,6 @@ function FundingOverviewCard({
   fundingTotal: number;
   avgMonthlySpend: number;
   monthsWithSpend: number;
-  currentBalance: number | null;
   runwayMonths: number | null;
 }) {
   const kindTotals = new Map<string, number>();
@@ -374,12 +377,6 @@ function FundingOverviewCard({
             </dd>
           </div>
         </dl>
-        <p className="mt-3 text-xs text-hl-muted">
-          Based on a current balance of{" "}
-          {currentBalance === null ? "—" : formatCad(currentBalance)}.
-          Runway shrinks if spend accelerates or grant receipts slow down —
-          treat it as a rough guide, not a forecast.
-        </p>
       </div>
     </section>
   );
@@ -404,6 +401,40 @@ function ApprovalsAlert({ year, count }: { year: number; count: number }) {
         >
           Review
         </Link>
+      </div>
+    </section>
+  );
+}
+
+function TravelClaimApprovalsAlert({ claims }: { claims: TravelClaim[] }) {
+  return (
+    <section className="hl-card border-blue-300 bg-blue-50/60 p-5">
+      <div className="flex items-start gap-3">
+        <Inbox className="mt-0.5 h-5 w-5 text-blue-700" />
+        <div className="flex-1">
+          <h2 className="text-base font-semibold tracking-tight text-hl-ink">
+            {claims.length} travel claim{claims.length === 1 ? "" : "s"}{" "}
+            awaiting your approval
+          </h2>
+          <p className="mt-1 text-sm text-hl-muted">
+            Payments won&rsquo;t process these until you sign off.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-sm">
+            {claims.map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-3">
+                <span className="truncate text-hl-ink">
+                  {c.submitterName} — {c.purpose}
+                </span>
+                <Link
+                  href={`/travel-claims/${c.id}`}
+                  className="shrink-0 font-medium text-hl-green-700 hover:underline"
+                >
+                  Review →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </section>
   );

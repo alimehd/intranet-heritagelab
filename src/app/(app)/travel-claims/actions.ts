@@ -13,7 +13,8 @@ import {
   travelClaimSchema,
   type TravelClaimInput,
 } from "@/lib/claims/schema";
-import { isBoardMember } from "@/lib/roles";
+import { getApproverFor } from "@/lib/email";
+import { isBoardMember, normalizeEmail } from "@/lib/roles";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
@@ -226,6 +227,56 @@ export async function cancelTravelClaim(
   revalidatePath("/dashboard");
   revalidatePath("/travel-claims");
   revalidatePath(`/travel-claims/${claimId}`);
+  return { ok: true };
+}
+
+export type ApproveState = { ok: boolean; error?: string };
+
+export async function approveTravelClaim(
+  _prev: ApproveState | undefined,
+  formData: FormData,
+): Promise<ApproveState> {
+  const session = await auth();
+  const actor = session?.user?.email;
+  if (!session?.user?.id || !actor) {
+    return { ok: false, error: "You must be signed in to approve a claim." };
+  }
+
+  const claimId = String(formData.get("claimId") ?? "");
+  if (!claimId) return { ok: false, error: "Missing claim reference." };
+
+  const [row] = await db
+    .select()
+    .from(travelClaims)
+    .where(eqClaimId(claimId))
+    .limit(1);
+  if (!row) return { ok: false, error: "Claim not found." };
+
+  const requiredApprover = getApproverFor(row.submitterEmail);
+  if (
+    !requiredApprover ||
+    normalizeEmail(requiredApprover) !== normalizeEmail(actor)
+  ) {
+    return {
+      ok: false,
+      error: "You are not the designated approver for this claim.",
+    };
+  }
+  if (row.status === "cancelled") {
+    return { ok: false, error: "This claim was cancelled." };
+  }
+  if (row.approvedAt) {
+    return { ok: false, error: "This claim has already been approved." };
+  }
+
+  await db
+    .update(travelClaims)
+    .set({ approvedAt: new Date(), approvedBy: actor })
+    .where(eqClaimId(claimId));
+
+  revalidatePath("/travel-claims");
+  revalidatePath(`/travel-claims/${claimId}`);
+  revalidatePath("/budget/[year]", "page");
   return { ok: true };
 }
 
