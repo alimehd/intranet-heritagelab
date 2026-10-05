@@ -12,7 +12,7 @@ import {
 } from "@/lib/claims/schema";
 import { StatusBadge } from "@/components/StatusBadge";
 import { getApproverFor } from "@/lib/email";
-import { isBoardMember, normalizeEmail } from "@/lib/roles";
+import { isBoardMember, isClaimReviewer, normalizeEmail } from "@/lib/roles";
 import { CancelClaimForm } from "./CancelClaimForm";
 import { ApproveClaimForm } from "./ApproveClaimForm";
 
@@ -36,15 +36,27 @@ export default async function ClaimDetailPage({
     .where(eq(travelClaims.id, id))
     .limit(1);
 
-  // Board members can review and cancel any claim; everyone else only their own.
-  const boardMember = isBoardMember(session?.user?.email);
-  if (!row || (row.userId !== session!.user.id && !boardMember)) notFound();
+  if (!row) notFound();
 
-  const cancelled = row.status === "cancelled";
   const requiredApprover = getApproverFor(row.submitterEmail);
   const isDesignatedApprover =
     requiredApprover !== null &&
     normalizeEmail(requiredApprover) === normalizeEmail(session?.user?.email);
+
+  // Board members and the claim's designated approver can review any claim
+  // they're responsible for; everyone else only sees their own.
+  const boardMember = isBoardMember(session?.user?.email);
+  const claimReviewer = isClaimReviewer(session?.user?.email);
+  if (
+    row.userId !== session!.user.id &&
+    !boardMember &&
+    !claimReviewer &&
+    !isDesignatedApprover
+  ) {
+    notFound();
+  }
+
+  const cancelled = row.status === "cancelled";
   const awaitingApproval =
     !cancelled && requiredApprover !== null && !row.approvedAt;
 

@@ -20,15 +20,23 @@ export function getClaimsRecipient(): string {
 }
 
 /**
- * Submitters whose claims must be approved by someone else before payments
- * acts on them. The approver becomes the primary recipient and payments is
- * copied. Override with CLAIM_APPROVER_OVERRIDES="submitter:approver,…".
+ * Every travel claim must be approved before payments acts on it. By default
+ * Ali approves everyone's claims; Ali's own claims are approved by Elias. The
+ * approver becomes the primary recipient and payments is copied.
+ *
+ * - CLAIM_DEFAULT_APPROVER: approver for any submitter without an override
+ *   (default ali.mehdi@heritagelab.ca).
+ * - CLAIM_APPROVER_OVERRIDES="submitter:approver,…": per-submitter exceptions
+ *   (default: Ali's claims go to Elias).
  */
+const DEFAULT_APPROVER = "ali.mehdi@heritagelab.ca";
 const DEFAULT_APPROVER_OVERRIDES: Record<string, string> = {
   "ali.mehdi@heritagelab.ca": "elias.moukannas@heritagelab.ca",
-  // External guest travel claims — Ali reviews before payments processes.
-  "jacob.seguin@mila.quebec": "ali.mehdi@heritagelab.ca",
 };
+
+function getDefaultApprover(): string {
+  return (process.env.CLAIM_DEFAULT_APPROVER?.trim() || DEFAULT_APPROVER).toLowerCase();
+}
 
 function getApproverOverrides(): Record<string, string> {
   const raw = process.env.CLAIM_APPROVER_OVERRIDES?.trim();
@@ -42,8 +50,18 @@ function getApproverOverrides(): Record<string, string> {
   return Object.keys(parsed).length > 0 ? parsed : DEFAULT_APPROVER_OVERRIDES;
 }
 
+/**
+ * Who must approve this submitter's claims. Never the submitter themselves:
+ * if the default approver is the submitter and there's no explicit override,
+ * fall back to the built-in override (Elias for Ali).
+ */
 export function getApproverFor(submitterEmail: string): string | null {
-  return getApproverOverrides()[submitterEmail.trim().toLowerCase()] ?? null;
+  const submitter = submitterEmail.trim().toLowerCase();
+  const explicit = getApproverOverrides()[submitter];
+  if (explicit) return explicit;
+  const fallback = getDefaultApprover();
+  if (fallback !== submitter) return fallback;
+  return DEFAULT_APPROVER_OVERRIDES[submitter] ?? null;
 }
 
 export type MailRouting = { to: string[]; cc: string[] };

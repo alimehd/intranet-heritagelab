@@ -15,12 +15,14 @@ import {
 } from "@/lib/claims/schema";
 import { getApproverFor } from "@/lib/email";
 import { isBoardMember, normalizeEmail } from "@/lib/roles";
+import {
+  MAX_RECEIPT_BYTES,
+  MAX_TOTAL_RECEIPT_BYTES,
+} from "@/lib/claims/receipt-limits";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 
-const MAX_RECEIPT_BYTES = 8 * 1024 * 1024; // 8 MB per file
-const MAX_TOTAL_RECEIPT_BYTES = 20 * 1024 * 1024; // 20 MB total
 const ALLOWED_RECEIPT_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
@@ -82,14 +84,14 @@ export async function submitTravelClaim(
     if (f.size > MAX_RECEIPT_BYTES) {
       return {
         ok: false,
-        error: `Receipt "${f.name}" exceeds the 8 MB per-file limit.`,
+        error: `Receipt "${f.name}" exceeds the 4 MB upload limit.`,
       };
     }
     receiptBytes += f.size;
     if (receiptBytes > MAX_TOTAL_RECEIPT_BYTES) {
       return {
         ok: false,
-        error: "Total receipt uploads exceed the 20 MB limit.",
+        error: "Total receipt uploads exceed the 4 MB limit.",
       };
     }
     if (f.type && !ALLOWED_RECEIPT_TYPES.has(f.type)) {

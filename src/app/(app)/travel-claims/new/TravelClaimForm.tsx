@@ -11,6 +11,10 @@ import {
   formatMoney,
   type TravelClaimInput,
 } from "@/lib/claims/schema";
+import {
+  MAX_TOTAL_RECEIPT_BYTES,
+  compressReceipt,
+} from "@/lib/claims/receipt-limits";
 import { submitTravelClaim, type SubmitState } from "../actions";
 
 type TransportRow = TravelClaimInput["transport"][number];
@@ -182,6 +186,14 @@ export function TravelClaimForm({
         });
         return;
       }
+    }
+    if (receipts.reduce((s, f) => s + f.size, 0) > MAX_TOTAL_RECEIPT_BYTES) {
+      setState({
+        ok: false,
+        error:
+          "Your receipts are over the 4 MB upload limit. Remove some files, or use smaller photos/PDFs.",
+      });
+      return;
     }
     const fd = new FormData();
     fd.append("payload", JSON.stringify(claim));
@@ -850,19 +862,22 @@ export function TravelClaimForm({
             <Upload className="h-5 w-5" />
             <span>
               Click to add PDF, JPG, or PNG files — they are appended to the end
-              of the claim PDF. Max 8 MB per file, 20 MB total.
+              of the claim PDF. Photos are shrunk automatically. Max 4 MB total.
             </span>
             <input
               type="file"
               multiple
               className="hidden"
               accept="application/pdf,image/*"
-              onChange={(e) =>
-                setReceipts((prev) => [
-                  ...prev,
-                  ...Array.from(e.target.files ?? []),
-                ])
-              }
+              onChange={async (e) => {
+                const input = e.target;
+                const picked = Array.from(input.files ?? []);
+                input.value = "";
+                const processed = await Promise.all(
+                  picked.map(compressReceipt),
+                );
+                setReceipts((prev) => [...prev, ...processed]);
+              }}
             />
           </label>
           {receipts.length > 0 ? (
@@ -889,8 +904,15 @@ export function TravelClaimForm({
                   </button>
                 </li>
               ))}
-              <li className="text-xs text-hl-muted">
-                Total: {(totalReceiptBytes / 1024).toFixed(0)} KB
+              <li
+                className={`text-xs ${
+                  totalReceiptBytes > MAX_TOTAL_RECEIPT_BYTES
+                    ? "font-medium text-red-700"
+                    : "text-hl-muted"
+                }`}
+              >
+                Total: {(totalReceiptBytes / 1024).toFixed(0)} KB of{" "}
+                {MAX_TOTAL_RECEIPT_BYTES / 1024} KB
               </li>
             </ul>
           ) : null}

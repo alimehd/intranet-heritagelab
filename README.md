@@ -34,6 +34,7 @@ You need:
 - `RESEND_API_KEY` from resend.com
 - `MAIL_FROM` — for production, an address on a domain you've verified in Resend
 - `CLAIMS_RECIPIENT` — defaults to `payments@heritagelab.ca`
+- `CLAIM_DEFAULT_APPROVER` — optional; approves all claims by default (default `ali.mehdi@heritagelab.ca`)
 - `CLAIM_APPROVER_OVERRIDES` — optional `submitter:approver` pairs; the approver receives the claim and `CLAIMS_RECIPIENT` is copied
 
 ### 3. Push the database schema
@@ -100,7 +101,7 @@ Rates live in `RATES` in `src/lib/claims/schema.ts`: meals ($21 breakfast / $27 
 
 - **Private host lodging** is an alternative to a hotel: the claimant records the host's name, email, and address plus arrival and departure dates, and is reimbursed $80 per night. The night count is derived server-side from the dates rather than accepted from the browser, so the payout can't be inflated by editing the request. The allowance goes to the claimant, not the host — the host is never emailed.
 - Receipts (PDF, JPG, PNG) are **appended as pages to the claim PDF** so payments receives one document. Formats pdf-lib can't embed (HEIC, WebP) travel as separate attachments instead.
-- Claims are emailed to `CLAIMS_RECIPIENT`. Submitters listed in `CLAIM_APPROVER_OVERRIDES` route to their approver first with payments in CC — by default `ali.mehdi@heritagelab.ca` → `elias.moukannas@heritagelab.ca`.
+- Every claim goes to its approver first with `CLAIMS_RECIPIENT` (payments) in CC. The approver is `CLAIM_DEFAULT_APPROVER` (default `ali.mehdi@heritagelab.ca`), except Ali's own claims, which go to `elias.moukannas@heritagelab.ca`. Per-submitter exceptions can be set in `CLAIM_APPROVER_OVERRIDES`.
 - A claim can be cancelled by its submitter (or any board member), which flags it in the database and emails a "do not process" notice to payments.
 
 ## Where things live

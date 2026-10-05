@@ -29,6 +29,26 @@ export function isBoardMember(email: string | null | undefined): boolean {
   return normalized.length > 0 && getBoardMembers().has(normalized);
 }
 
+/**
+ * People who can open and review every travel claim (other than their own
+ * approval, which is routed elsewhere — see CLAIM_APPROVER_OVERRIDES in
+ * lib/email.ts). Override with CLAIM_REVIEWER_EMAILS (comma-separated).
+ */
+const DEFAULT_CLAIM_REVIEWERS = ["ali.mehdi@heritagelab.ca"] as const;
+
+export function getClaimReviewers(): Set<string> {
+  const configured = (process.env.CLAIM_REVIEWER_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(configured.length > 0 ? configured : DEFAULT_CLAIM_REVIEWERS);
+}
+
+export function isClaimReviewer(email: string | null | undefined): boolean {
+  const normalized = normalizeEmail(email);
+  return normalized.length > 0 && getClaimReviewers().has(normalized);
+}
+
 /** True for anyone signed in with a Heritage Lab domain address. */
 export function isInternalStaff(email: string | null | undefined): boolean {
   const normalized = normalizeEmail(email);
