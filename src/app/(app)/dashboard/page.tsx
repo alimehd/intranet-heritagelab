@@ -14,13 +14,21 @@ import {
   Inbox,
 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { isBoardMember } from "@/lib/roles";
+import { isBoardMember, normalizeEmail } from "@/lib/roles";
 import { isGuestEmail } from "@/lib/allowlist";
 import { BOARD_GENERAL_FOLDER } from "@/lib/resources";
 import { formatDays } from "@/lib/leave/dates";
 import { canApproveLeave, findLeaveEmployee } from "@/lib/leave/people";
 import { getBalancesFor, getTeamRequestsFor } from "@/lib/leave/queries";
 import { LEAVE_TYPES, LEAVE_TYPE_LABELS } from "@/lib/leave/schema";
+import { canViewBudget } from "@/lib/budget/people";
+import {
+  listPendingApprovals,
+  type ExpenseReportWithMeta,
+} from "@/lib/budget/er-queries";
+import { getFiscalYears } from "@/lib/budget/queries";
+import { listPendingTravelClaimApprovals } from "@/lib/claims/queries";
+import type { TravelClaim } from "@/lib/db/schema";
 
 export const metadata = { title: "Dashboard — Heritage Lab" };
 
@@ -42,18 +50,25 @@ export default async function DashboardPage() {
 
   const boardMember = isBoardMember(session?.user?.email);
 
+  const email = normalizeEmail(session?.user?.email);
   const leaveEmployee = guest ? null : findLeaveEmployee(session?.user?.email);
   const leaveYear = new Date().getUTCFullYear();
-  const [leaveBalances, pendingLeave] = await Promise.all([
-    leaveEmployee
-      ? getBalancesFor(leaveEmployee.email, leaveYear)
-      : Promise.resolve(null),
-    !guest && canApproveLeave(session?.user?.email)
-      ? getTeamRequestsFor(leaveYear).then((rows) =>
-          rows.filter((r) => r.status === "pending"),
-        )
-      : Promise.resolve([]),
-  ]);
+  const showExpenseApprovals = !guest && canViewBudget(email);
+  const [leaveBalances, pendingLeave, pendingTravelClaims, pendingExpenseReports, fiscalYears] =
+    await Promise.all([
+      leaveEmployee
+        ? getBalancesFor(leaveEmployee.email, leaveYear)
+        : Promise.resolve(null),
+      !guest && canApproveLeave(session?.user?.email)
+        ? getTeamRequestsFor(leaveYear).then((rows) =>
+            rows.filter((r) => r.status === "pending"),
+          )
+        : Promise.resolve([]),
+      guest ? Promise.resolve([]) : listPendingTravelClaimApprovals(email),
+      showExpenseApprovals ? listPendingApprovals(email) : Promise.resolve([]),
+      showExpenseApprovals ? getFiscalYears() : Promise.resolve([]),
+    ]);
+  const yearByFiscalId = new Map(fiscalYears.map((y) => [y.id, y.year]));
 
   return (
     <div className="space-y-8">
@@ -67,6 +82,12 @@ export default async function DashboardPage() {
             : "Submit travel claims and access internal resources."}
         </p>
       </div>
+
+      <NeedsApproval
+        claims={pendingTravelClaims}
+        reports={pendingExpenseReports}
+        yearByFiscalId={yearByFiscalId}
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <ActionCard
@@ -249,6 +270,98 @@ export default async function DashboardPage() {
       </section>
     </div>
   );
+}
+
+function NeedsApproval({
+  claims,
+  reports,
+  yearByFiscalId,
+}: {
+  claims: TravelClaim[];
+  reports: ExpenseReportWithMeta[];
+  yearByFiscalId: Map<string, number>;
+}) {
+  const total = claims.length + reports.length;
+  if (total === 0) return null;
+
+  const items: Array<{
+    key: string;
+    href: string;
+    kind: string;
+    title: string;
+    detail: string;
+    amount: string;
+  }> = [
+    ...reports.map((r) => {
+      const year = yearByFiscalId.get(r.fiscalYearId);
+      return {
+        key: `er-${r.id}`,
+        href: year ? `/budget/${year}/reports/${r.id}` : "/budget",
+        kind: "Expense report",
+        title: `${r.submitterName} — ${r.title}`,
+        detail: `${r.reportNumber} · ${r.periodFrom} → ${r.periodTo}`,
+        amount: formatMoney(Number(r.totalAmount)),
+      };
+    }),
+    ...claims.map((c) => ({
+      key: `tc-${c.id}`,
+      href: `/travel-claims/${c.id}`,
+      kind: "Travel claim",
+      title: `${c.submitterName} — ${c.purpose}`,
+      detail: `${c.startDate} → ${c.endDate}`,
+      amount: formatMoney(Number(c.totalAmount)),
+    })),
+  ];
+
+  return (
+    <section className="hl-card overflow-hidden border-blue-300">
+      <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-5 py-4">
+        <Inbox className="h-5 w-5 shrink-0 text-blue-700" />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold tracking-tight text-hl-ink">
+            Needs your approval
+          </h2>
+          <p className="text-sm text-hl-muted">{waitingSummary(reports.length, claims.length)}</p>
+        </div>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-blue-700 px-2 text-sm font-semibold text-white">
+          {total}
+        </span>
+      </div>
+      <ul>
+        {items.map((item) => (
+          <li key={item.key} className="border-b border-hl-border last:border-b-0">
+            <Link
+              href={item.href}
+              className="flex flex-col gap-2 px-5 py-4 transition hover:bg-blue-50/60 sm:flex-row sm:items-center sm:gap-4"
+            >
+              <span className="inline-flex w-fit shrink-0 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-900">
+                {item.kind}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-hl-ink">{item.title}</div>
+                <div className="truncate text-sm text-hl-muted">{item.detail}</div>
+              </div>
+              <div className="flex items-center justify-between gap-4 sm:shrink-0 sm:justify-end">
+                <span className="tabular-nums font-semibold text-hl-ink">{item.amount}</span>
+                <span className="text-sm font-medium text-hl-green-700">Review →</span>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function waitingSummary(reports: number, claims: number): string {
+  const parts: string[] = [];
+  if (reports > 0) {
+    parts.push(`${reports} expense report${reports === 1 ? "" : "s"}`);
+  }
+  if (claims > 0) {
+    parts.push(`${claims} travel claim${claims === 1 ? "" : "s"}`);
+  }
+  return `${parts.join(" and ")} waiting — payments won't move until you sign off.`;
 }
 
 function ActionCard({
