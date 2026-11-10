@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { netDebitSql } from "./net-debit";
 import {
   budgetFiscalYears,
   expenseReports,
@@ -188,7 +189,7 @@ export async function getBudgetLineSpentMap(
     const yearEnd = `${fyYear}-12-31`;
     // Direct bank debits — but only rows WITHOUT splits (splits govern).
     const directRows = await db.execute(sql`
-      SELECT budget_line_id, COALESCE(SUM(debit), 0)::text AS total
+      SELECT budget_line_id, COALESCE(SUM(${netDebitSql(sql.raw("bt.id"))}), 0)::text AS total
       FROM bank_transaction bt
       WHERE classification = 'direct_expense'
         AND budget_line_id IS NOT NULL
@@ -261,7 +262,7 @@ export async function getFundingSourceSpentTotal(
   fundingSourceId: string,
 ): Promise<number> {
   const directRes = await db.execute(sql`
-    SELECT COALESCE(SUM(debit), 0)::text AS total
+    SELECT COALESCE(SUM(${netDebitSql()}), 0)::text AS total
     FROM bank_transaction
     WHERE classification = 'direct_expense'
       AND funding_source_id = ${fundingSourceId}

@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { netDebitSql } from "./net-debit";
 import {
   bankAccounts,
   bankTransactions,
@@ -175,7 +176,7 @@ export async function getExpenseLedger(
             txnDate: bankTransactions.txnDate,
             description: bankTransactions.description,
             note: bankTransactions.note,
-            debit: bankTransactions.debit,
+            debit: netDebitSql(),
             budgetLineId: bankTransactions.budgetLineId,
             budgetLineCode: budgetLines.fullCode,
             budgetLineName: budgetLines.name,

@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { netDebitSql } from "./net-debit";
 import {
   BANK_TXN_CLASSIFICATIONS,
   bankAccounts,
@@ -363,7 +364,7 @@ export async function getFundingSourceSpentInPeriod(
 ): Promise<number> {
   const [directRow] = await db
     .select({
-      total: sql<string>`COALESCE(SUM(${bankTransactions.debit}), 0)`,
+      total: sql<string>`COALESCE(SUM(${netDebitSql()}), 0)`,
     })
     .from(bankTransactions)
     .where(
@@ -417,7 +418,7 @@ export async function getFundingSourceSpentById(id: string): Promise<number> {
   // have splits (splits govern in that case and are summed below).
   const [directRow] = await db
     .select({
-      total: sql<string>`COALESCE(SUM(${bankTransactions.debit}), 0)`,
+      total: sql<string>`COALESCE(SUM(${netDebitSql()}), 0)`,
     })
     .from(bankTransactions)
     .where(
