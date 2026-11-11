@@ -78,17 +78,24 @@ export default async function GrantsPage({
   const yearEnd = `${year}-12-31`;
   const stats = await Promise.all(
     sources.map(async (s) => {
-      const [received, spent, receivedAllTime, spentAllTime] =
+      const hasContractPeriod = Boolean(s.contractStartDate && s.contractEndDate);
+      const [received, spent, receivedAllTime, spentAllTime, spentContract] =
         await Promise.all([
           getFundingSourceReceivedInPeriod(s.id, yearStart, yearEnd),
           getFundingSourceSpentInPeriod(s.id, yearStart, yearEnd),
           getFundingSourceReceivedById(s.id),
           getFundingSourceSpentById(s.id),
+          // Spend against the total budget covers the whole contract period
+          // when one is set (multi-year grants), otherwise just this year.
+          hasContractPeriod
+            ? getFundingSourceSpentInPeriod(s.id, s.contractStartDate!, s.contractEndDate!)
+            : null,
         ]);
       return {
         id: s.id,
         received,
         spent,
+        spentOfTotal: spentContract ?? spent,
         hasOutsideActivity: receivedAllTime !== received || spentAllTime !== spent,
       };
     }),
@@ -161,7 +168,7 @@ export default async function GrantsPage({
               year={year}
               source={s}
               received={statsById.get(s.id)?.received ?? 0}
-              spent={statsById.get(s.id)?.spent ?? 0}
+              spent={statsById.get(s.id)?.spentOfTotal ?? 0}
               hasOutsideActivity={statsById.get(s.id)?.hasOutsideActivity ?? false}
               projectLine={s.projectLineId ? lineById.get(s.projectLineId) ?? null : null}
             />
@@ -188,8 +195,10 @@ function FundingSourceCard({
   projectLine: { fullCode: string; name: string } | null;
 }) {
   const contract = Number(source.contractValue ?? 0);
+  // Total budget: the whole contract for multi-year grants, else this year's value.
+  const totalBudget = Number(source.contractTotalValue ?? 0) || contract;
   const receivedPct = contract > 0 ? Math.min(100, (received / contract) * 100) : 0;
-  const spentPct = received > 0 ? Math.min(100, (spent / received) * 100) : 0;
+  const spentPct = totalBudget > 0 ? Math.min(100, (spent / totalBudget) * 100) : 0;
   // Prefer categoryCaps; fall back to legacy allowedCategoryCodes.
   const restrictions =
     (source.categoryCaps?.length ?? 0) > 0
@@ -233,11 +242,16 @@ function FundingSourceCard({
         </div>
         <div className="text-right">
           <div className="text-xs uppercase tracking-wider text-hl-muted">
-            Contract value
+            Total budget
           </div>
           <div className="text-lg font-semibold tabular-nums text-hl-ink">
-            {formatCad(contract)}
+            {formatCad(totalBudget)}
           </div>
+          {totalBudget !== contract ? (
+            <div className="text-[11px] tabular-nums text-hl-muted">
+              {year}: {formatCad(contract)}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -250,11 +264,11 @@ function FundingSourceCard({
           barClass="bg-hl-green-600"
         />
         <ProgressBar
-          label="Spent (of received)"
+          label="Spent (of total budget)"
           amount={spent}
-          of={received}
+          of={totalBudget}
           pct={spentPct}
-          barClass={spent > received ? "bg-red-600" : "bg-amber-500"}
+          barClass={spent > totalBudget ? "bg-red-600" : "bg-amber-500"}
         />
       </div>
       {hasOutsideActivity ? (
